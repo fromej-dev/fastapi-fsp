@@ -3,7 +3,7 @@ from typing import Annotated, Any, List, Optional
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from sqlalchemy import Select, func
-from sqlmodel import Session, select, not_
+from sqlmodel import Session, not_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from fastapi_fsp.models import (
@@ -290,7 +290,9 @@ class FSPManager:
             ),
         )
 
-    async def generate_response_async(self, query: Select, session: AsyncSession) -> PaginatedResponse[Any]:
+    async def generate_response_async(
+        self, query: Select, session: AsyncSession
+    ) -> PaginatedResponse[Any]:
         query = self._apply_filters(query)
         query = self._apply_sort(query)
 

@@ -27,56 +27,114 @@ def test_full_operator_coverage_sync(session: Session, client: TestClient):
     assert js["meta"]["pagination"]["total_items"] == 4
 
     # eq / ne
-    assert client.get("/heroes/?field=name&operator=eq&value=Deadpond").json()["data"][0]["name"] == "Deadpond"
-    names_ne = [h["name"] for h in client.get("/heroes/?field=name&operator=ne&value=Deadpond").json()["data"]]
+    assert (
+        client.get("/heroes/?field=name&operator=eq&value=Deadpond").json()["data"][0]["name"]
+        == "Deadpond"
+    )
+    names_ne = [
+        h["name"]
+        for h in client.get("/heroes/?field=name&operator=ne&value=Deadpond").json()["data"]
+    ]
     assert "Deadpond" not in names_ne
 
     # gt / gte / lt / lte on age
-    assert set([h["name"] for h in client.get("/heroes/?field=age&operator=gt&value=15").json()["data"]]) == {"beta", "Rusty-Man"}
-    assert set([h["name"] for h in client.get("/heroes/?field=age&operator=gte&value=20").json()["data"]]) == {"Rusty-Man", "beta"}
-    assert [h["name"] for h in client.get("/heroes/?field=age&operator=lt&value=15").json()["data"]] == ["ALPHA"]
-    assert set([h["name"] for h in client.get("/heroes/?field=age&operator=lte&value=20").json()["data"]]) == {"ALPHA", "beta"}
+    assert set(
+        [h["name"] for h in client.get("/heroes/?field=age&operator=gt&value=15").json()["data"]]
+    ) == {"beta", "Rusty-Man"}
+    assert set(
+        [h["name"] for h in client.get("/heroes/?field=age&operator=gte&value=20").json()["data"]]
+    ) == {"Rusty-Man", "beta"}
+    assert [
+        h["name"] for h in client.get("/heroes/?field=age&operator=lt&value=15").json()["data"]
+    ] == ["ALPHA"]
+    assert set(
+        [h["name"] for h in client.get("/heroes/?field=age&operator=lte&value=20").json()["data"]]
+    ) == {"ALPHA", "beta"}
 
     # like / not_like
-    assert [h["name"] for h in client.get("/heroes/?field=name&operator=like&value=A%").json()["data"]] == ["ALPHA"]
-    not_like_a = [h["name"] for h in client.get("/heroes/?field=name&operator=not_like&value=A%").json()["data"]]
+    assert [
+        h["name"] for h in client.get("/heroes/?field=name&operator=like&value=A%").json()["data"]
+    ] == ["ALPHA"]
+    not_like_a = [
+        h["name"]
+        for h in client.get("/heroes/?field=name&operator=not_like&value=A%").json()["data"]
+    ]
     assert "ALPHA" not in not_like_a
 
     # ilike / not_ilike
-    assert set([h["name"] for h in client.get("/heroes/?field=name&operator=ilike&value=a%").json()["data"]]) == {"ALPHA"}
-    not_ilike_beta = [h["name"] for h in client.get("/heroes/?field=name&operator=not_ilike&value=%eta").json()["data"]]
+    assert set(
+        [
+            h["name"]
+            for h in client.get("/heroes/?field=name&operator=ilike&value=a%").json()["data"]
+        ]
+    ) == {"ALPHA"}
+    not_ilike_beta = [
+        h["name"]
+        for h in client.get("/heroes/?field=name&operator=not_ilike&value=%eta").json()["data"]
+    ]
     assert "beta" not in not_ilike_beta
 
     # in / not_in
     in_names = client.get("/heroes/?field=name&operator=in&value=Deadpond,ALPHA").json()["data"]
     assert set([h["name"] for h in in_names]) == {"Deadpond", "ALPHA"}
-    not_in_names = client.get("/heroes/?field=name&operator=not_in&value=Deadpond,ALPHA").json()["data"]
+    not_in_names = client.get("/heroes/?field=name&operator=not_in&value=Deadpond,ALPHA").json()[
+        "data"
+    ]
     assert "Deadpond" not in [h["name"] for h in not_in_names]
     assert "ALPHA" not in [h["name"] for h in not_in_names]
 
     # between
-    between_ages = [h["name"] for h in client.get("/heroes/?field=age&operator=between&value=15,48").json()["data"]]
+    between_ages = [
+        h["name"]
+        for h in client.get("/heroes/?field=age&operator=between&value=15,48").json()["data"]
+    ]
     assert set(between_ages) == {"beta", "Rusty-Man"}
 
     # is_null / is_not_null
-    assert [h["name"] for h in client.get("/heroes/?field=age&operator=is_null&value=").json()["data"]] == ["Deadpond"]
-    assert set([h["name"] for h in client.get("/heroes/?field=age&operator=is_not_null&value=").json()["data"]]) == {"ALPHA", "beta", "Rusty-Man"}
+    assert [
+        h["name"] for h in client.get("/heroes/?field=age&operator=is_null&value=").json()["data"]
+    ] == ["Deadpond"]
+    assert set(
+        [
+            h["name"]
+            for h in client.get("/heroes/?field=age&operator=is_not_null&value=").json()["data"]
+        ]
+    ) == {"ALPHA", "beta", "Rusty-Man"}
 
     # starts_with / ends_with / contains
-    assert set([h["name"] for h in client.get("/heroes/?field=name&operator=starts_with&value=a").json()["data"]]) == {"ALPHA"}
-    assert set([h["name"] for h in client.get("/heroes/?field=name&operator=ends_with&value=a").json()["data"]]) == {"ALPHA", "beta"}
-    assert set([h["name"] for h in client.get("/heroes/?field=name&operator=contains&value=us").json()["data"]]) == {"Rusty-Man"}
+    assert set(
+        [
+            h["name"]
+            for h in client.get("/heroes/?field=name&operator=starts_with&value=a").json()["data"]
+        ]
+    ) == {"ALPHA"}
+    assert set(
+        [
+            h["name"]
+            for h in client.get("/heroes/?field=name&operator=ends_with&value=a").json()["data"]
+        ]
+    ) == {"ALPHA", "beta"}
+    assert set(
+        [
+            h["name"]
+            for h in client.get("/heroes/?field=name&operator=contains&value=us").json()["data"]
+        ]
+    ) == {"Rusty-Man"}
 
     # sort invalid column ignored (should not error)
     js = client.get("/heroes/?sort_by=unknown&order=asc").json()
     assert js["meta"]["sort"] is not None
 
     # malformed between should not filter
-    names = [h["name"] for h in client.get("/heroes/?field=age&operator=between&value=10").json()["data"]]
+    names = [
+        h["name"] for h in client.get("/heroes/?field=age&operator=between&value=10").json()["data"]
+    ]
     assert set(names) == {"Deadpond", "Rusty-Man", "ALPHA", "beta"}
 
     # unknown field filter ignored
-    names = [h["name"] for h in client.get("/heroes/?field=unknown&operator=eq&value=x").json()["data"]]
+    names = [
+        h["name"] for h in client.get("/heroes/?field=unknown&operator=eq&value=x").json()["data"]
+    ]
     assert set(names) == {"Deadpond", "Rusty-Man", "ALPHA", "beta"}
 
     # validation and failure scenarios

@@ -2,10 +2,10 @@ import asyncio
 from typing import AsyncGenerator
 
 import pytest
-from starlette.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.testclient import TestClient
 
 from tests.main_async import app, get_session
 
