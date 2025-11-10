@@ -25,8 +25,8 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "fastapi>=0.111",
-    "sqlmodel>=0.0.24",
+    "fastapi>=0.121.1",
+    "sqlmodel>=0.0.27",
 ]
 
 [project.urls]
