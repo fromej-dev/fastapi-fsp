@@ -3,7 +3,7 @@ from typing import Annotated, Any, List, Optional
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
-from sqlalchemy import Select, func
+from sqlalchemy import ColumnCollection, ColumnElement, Select, func
 from sqlmodel import Session, not_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -160,160 +160,39 @@ class FSPManager:
         result = await session.exec(count_query)
         return result.one()
 
-    def _apply_filters(self, query: Select) -> Select:
-        # Helper: build a map of column name -> column object from the select statement
-        try:
-            columns_map = {
-                col.key: col for col in query.selected_columns
-            }  # SQLAlchemy 1.4+ ColumnCollection is iterable
-        except Exception:
-            columns_map = {}
-
-        if not self.filters:
-            return query
-
-        def coerce_value(column, raw):
-            # Try to coerce raw (str or other) to the column's python type for proper comparisons
-            try:
-                pytype = getattr(column.type, "python_type", None)
-            except Exception:
-                pytype = None
-            if pytype is None or raw is None:
-                return raw
-            if isinstance(raw, pytype):
-                return raw
-            # Handle booleans represented as strings
-            if pytype is bool and isinstance(raw, str):
-                val = raw.strip().lower()
-                if val in {"true", "1", "t", "yes", "y"}:
-                    return True
-                if val in {"false", "0", "f", "no", "n"}:
-                    return False
-            # Generic cast with fallback
-            try:
-                return pytype(raw)
-            except Exception:
-                return raw
-
-        def split_values(raw):
-            if raw is None:
-                return []
-            if isinstance(raw, (list, tuple)):
-                return list(raw)
-            if isinstance(raw, str):
-                return [item.strip() for item in raw.split(",")]
-            return [raw]
-
-        def ilike_supported(col):
-            return hasattr(col, "ilike")
-
+    def _apply_filters(
+        self,
+        query: Select,
+        columns_map: ColumnCollection[str, ColumnElement[Any]],
+    ) -> Select:
         for f in self.filters:
-            if not f or not f.field:
-                continue
-
+            # filter of `self.filters` has been validated in the `_parse_filters`
             column = columns_map.get(f.field)
-            if column is None:
-                # Skip unknown fields silently
-                continue
-
-            op = str(f.operator).lower() if f.operator is not None else "eq"
-            raw_value = f.value
-
-            # Build conditions based on operator
-            if op == "eq":
-                query = query.where(column == coerce_value(column, raw_value))
-            elif op == "ne":
-                query = query.where(column != coerce_value(column, raw_value))
-            elif op == "gt":
-                query = query.where(column > coerce_value(column, raw_value))
-            elif op == "gte":
-                query = query.where(column >= coerce_value(column, raw_value))
-            elif op == "lt":
-                query = query.where(column < coerce_value(column, raw_value))
-            elif op == "lte":
-                query = query.where(column <= coerce_value(column, raw_value))
-            elif op == "like":
-                query = query.where(column.like(str(raw_value)))
-            elif op == "not_like":
-                query = query.where(not_(column.like(str(raw_value))))
-            elif op == "ilike":
-                pattern = str(raw_value)
-                if ilike_supported(column):
-                    query = query.where(column.ilike(pattern))
-                else:
-                    query = query.where(func.lower(column).like(pattern.lower()))
-            elif op == "not_ilike":
-                pattern = str(raw_value)
-                if ilike_supported(column):
-                    query = query.where(not_(column.ilike(pattern)))
-                else:
-                    query = query.where(not_(func.lower(column).like(pattern.lower())))
-            elif op == "in":
-                vals = [coerce_value(column, v) for v in split_values(raw_value)]
-                query = query.where(column.in_(vals))
-            elif op == "not_in":
-                vals = [coerce_value(column, v) for v in split_values(raw_value)]
-                query = query.where(not_(column.in_(vals)))
-            elif op == "between":
-                vals = split_values(raw_value)
-                if len(vals) != 2:
-                    # Ignore malformed between; alternatively raise 400
-                    continue
-                low = coerce_value(column, vals[0])
-                high = coerce_value(column, vals[1])
-                query = query.where(column.between(low, high))
-            elif op == "is_null":
-                query = query.where(column.is_(None))
-            elif op == "is_not_null":
-                query = query.where(column.is_not(None))
-            elif op == "starts_with":
-                pattern = f"{str(raw_value)}%"
-                if ilike_supported(column):
-                    query = query.where(column.ilike(pattern))
-                else:
-                    query = query.where(func.lower(column).like(pattern.lower()))
-            elif op == "ends_with":
-                pattern = f"%{str(raw_value)}"
-                if ilike_supported(column):
-                    query = query.where(column.ilike(pattern))
-                else:
-                    query = query.where(func.lower(column).like(pattern.lower()))
-            elif op == "contains":
-                pattern = f"%{str(raw_value)}%"
-                if ilike_supported(column):
-                    query = query.where(column.ilike(pattern))
-                else:
-                    query = query.where(func.lower(column).like(pattern.lower()))
-            else:
-                # Unknown operator: skip
-                continue
+            # Skip unknown fields silently
+            if column is not None:
+                query = FSPManager._apply_filter(query, column, f)
 
         return query
 
-    def _apply_sort(self, query: Select) -> Select:
-        # Build a map of column name -> column object from the select statement
-        try:
-            columns_map = {col.key: col for col in query.selected_columns}
-        except Exception:
-            columns_map = {}
-
-        if not self.sorting or not self.sorting.sort_by:
-            return query
-
+    def _apply_sort(
+        self,
+        query: Select,
+        columns_map: ColumnCollection[str, ColumnElement[Any]],
+    ) -> Select:
         column = columns_map.get(self.sorting.sort_by)
-        if column is None:
-            # Unknown sort column; skip sorting
-            return query
-
-        order = str(self.sorting.order).lower() if self.sorting.order else "asc"
-        if order == "desc":
-            return query.order_by(column.desc())
-        else:
-            return query.order_by(column.asc())
+        # Unknown sort column; skip sorting
+        if column is not None:
+            query = query.order_by(
+                column.desc() if self.sorting.order == SortingOrder.DESC else column.asc()
+            )
+        return query
 
     def generate_response(self, query: Select, session: Session) -> PaginatedResponse[Any]:
-        query = self._apply_filters(query)
-        query = self._apply_sort(query)
+        columns_map = query.selected_columns
+        if self.filters:
+            query = self._apply_filters(query, columns_map)
+        if self.sorting:
+            query = self._apply_sort(query, columns_map)
 
         total_items = self._count_total(query, session)
         per_page = self.pagination.per_page
@@ -362,8 +241,11 @@ class FSPManager:
     async def generate_response_async(
         self, query: Select, session: AsyncSession
     ) -> PaginatedResponse[Any]:
-        query = self._apply_filters(query)
-        query = self._apply_sort(query)
+        columns_map = query.selected_columns
+        if self.filters:
+            query = self._apply_filters(query, columns_map)
+        if self.sorting and self.sorting.sort_by:
+            query = self._apply_sort(query, columns_map)
 
         total_items = await self._count_total_async(query, session)
         per_page = self.pagination.per_page
@@ -408,3 +290,115 @@ class FSPManager:
                 prev=prev_url,
             ),
         )
+
+    @staticmethod
+    def coerce_value(column, raw):
+        # Try to coerce raw (str or other) to the column's python type for proper comparisons
+        try:
+            pytype = getattr(column.type, "python_type", None)
+        except Exception:
+            pytype = None
+        if pytype is None or raw is None:
+            return raw
+        if isinstance(raw, pytype):
+            return raw
+        # Handle booleans represented as strings
+        if pytype is bool and isinstance(raw, str):
+            val = raw.strip().lower()
+            if val in {"true", "1", "t", "yes", "y"}:
+                return True
+            if val in {"false", "0", "f", "no", "n"}:
+                return False
+        # Generic cast with fallback
+        try:
+            return pytype(raw)
+        except Exception:
+            return raw
+
+    @staticmethod
+    def split_values(raw):
+        if raw is None:
+            return []
+        if isinstance(raw, (list, tuple)):
+            return list(raw)
+        if isinstance(raw, str):
+            return [item.strip() for item in raw.split(",")]
+        return [raw]
+
+    @staticmethod
+    def ilike_supported(col):
+        return hasattr(col, "ilike")
+
+    @staticmethod
+    def _apply_filter(query: Select, column: ColumnElement[Any], f: Filter):
+        op = str(f.operator).lower() if f.operator is not None else "eq"
+        raw_value = f.value
+
+        # Build conditions based on operator
+        if op == "eq":
+            query = query.where(column == FSPManager.coerce_value(column, raw_value))
+        elif op == "ne":
+            query = query.where(column != FSPManager.coerce_value(column, raw_value))
+        elif op == "gt":
+            query = query.where(column > FSPManager.coerce_value(column, raw_value))
+        elif op == "gte":
+            query = query.where(column >= FSPManager.coerce_value(column, raw_value))
+        elif op == "lt":
+            query = query.where(column < FSPManager.coerce_value(column, raw_value))
+        elif op == "lte":
+            query = query.where(column <= FSPManager.coerce_value(column, raw_value))
+        elif op == "like":
+            query = query.where(column.like(str(raw_value)))
+        elif op == "not_like":
+            query = query.where(not_(column.like(str(raw_value))))
+        elif op == "ilike":
+            pattern = str(raw_value)
+            if FSPManager.ilike_supported(column):
+                query = query.where(column.ilike(pattern))
+            else:
+                query = query.where(func.lower(column).like(pattern.lower()))
+        elif op == "not_ilike":
+            pattern = str(raw_value)
+            if FSPManager.ilike_supported(column):
+                query = query.where(not_(column.ilike(pattern)))
+            else:
+                query = query.where(not_(func.lower(column).like(pattern.lower())))
+        elif op == "in":
+            vals = [FSPManager.coerce_value(column, v) for v in FSPManager.split_values(raw_value)]
+            query = query.where(column.in_(vals))
+        elif op == "not_in":
+            vals = [FSPManager.coerce_value(column, v) for v in FSPManager.split_values(raw_value)]
+            query = query.where(not_(column.in_(vals)))
+        elif op == "between":
+            vals = FSPManager.split_values(raw_value)
+            if len(vals) == 2:
+                # Ignore malformed between; alternatively raise 400
+                low = FSPManager.coerce_value(column, vals[0])
+                high = FSPManager.coerce_value(column, vals[1])
+                query = query.where(column.between(low, high))
+        elif op == "is_null":
+            query = query.where(column.is_(None))
+        elif op == "is_not_null":
+            query = query.where(column.is_not(None))
+        elif op == "starts_with":
+            pattern = f"{str(raw_value)}%"
+            if FSPManager.ilike_supported(column):
+                query = query.where(column.ilike(pattern))
+            else:
+                query = query.where(func.lower(column).like(pattern.lower()))
+        elif op == "ends_with":
+            pattern = f"%{str(raw_value)}"
+            if FSPManager.ilike_supported(column):
+                query = query.where(column.ilike(pattern))
+            else:
+                query = query.where(func.lower(column).like(pattern.lower()))
+        elif op == "contains":
+            pattern = f"%{str(raw_value)}%"
+            if FSPManager.ilike_supported(column):
+                query = query.where(column.ilike(pattern))
+            else:
+                query = query.where(func.lower(column).like(pattern.lower()))
+        else:
+            # Unknown operator: skip
+            pass
+        return query
