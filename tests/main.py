@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from fastapi import Depends, FastAPI
@@ -10,6 +11,8 @@ class HeroBase(SQLModel):
     name: str = Field(index=True)
     secret_name: str
     age: Optional[int] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.now)
+    deleted: bool = Field(default=False)
 
 
 class Hero(HeroBase, table=True):

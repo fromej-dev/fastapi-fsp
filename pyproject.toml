@@ -28,6 +28,7 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.121.1",
+    "python-dateutil>=2.9.0.post0",
     "sqlmodel>=0.0.27",
 ]
 

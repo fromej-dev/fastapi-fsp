@@ -1,3 +1,5 @@
+"""FastAPI-SQLModel-Pagination models"""
+
 from enum import StrEnum
 from typing import Generic, List, Optional, TypeVar
 
@@ -5,6 +7,8 @@ from pydantic import BaseModel
 
 
 class FilterOperator(StrEnum):
+    """Filter operators"""
+
     EQ = "eq"  # equals (=)
     NE = "ne"  # not equals (!=)
     GT = "gt"  # greater than (>)
@@ -31,6 +35,8 @@ class FilterOperator(StrEnum):
 
 
 class SortingOrder(StrEnum):
+    """Sorting orders"""
+
     ASC = "asc"  # ascending order
     DESC = "desc"  # descending order
 
@@ -39,22 +45,30 @@ T = TypeVar("T")
 
 
 class Filter(BaseModel):
+    """Filter model"""
+
     field: str
     operator: FilterOperator
     value: str
 
 
 class PaginationQuery(BaseModel):
+    """Pagination query model"""
+
     page: int
     per_page: int
 
 
 class SortingQuery(BaseModel):
+    """Sorting query model"""
+
     sort_by: str
     order: SortingOrder
 
 
 class Pagination(BaseModel):
+    """Pagination model"""
+
     total_items: Optional[int] = None
     per_page: int
     current_page: int
@@ -62,12 +76,16 @@ class Pagination(BaseModel):
 
 
 class Meta(BaseModel):
+    """Meta model"""
+
     pagination: Pagination
     filters: Optional[List[Filter]] = None
     sort: Optional[SortingQuery] = None
 
 
 class Links(BaseModel):
+    """Links model"""
+
     self: str
     first: str
     next: Optional[str] = None
@@ -76,6 +94,8 @@ class Links(BaseModel):
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
+    """Paginated response model"""
+
     data: List[T]
     meta: Meta
     links: Links
