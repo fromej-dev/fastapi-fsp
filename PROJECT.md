@@ -4,7 +4,7 @@
 fastapi-fsp
 
 ## pypi package version
-0.1.0
+0.2.1
 
 ## pypi package description
 Package to implement filtering, sorting and pagination in FastAPI endpoints
