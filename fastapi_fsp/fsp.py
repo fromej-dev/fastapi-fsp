@@ -646,7 +646,10 @@ class FSPManager:
                     available = ", ".join(sorted(columns_map.keys()))
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown sort field '{sorting.sort_by}'. Available fields: {available}",
+                        detail=(
+                            f"Unknown sort field '{sorting.sort_by}'. "
+                            f"Available fields: {available}"
+                        ),
                     )
                 # Unknown sort column; skip sorting in non-strict mode
                 return query

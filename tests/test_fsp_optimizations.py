@@ -3,10 +3,9 @@
 from datetime import datetime
 
 import pytest
-from sqlmodel import Field, Session, SQLModel, create_engine, select
-
 from fastapi_fsp.fsp import FSPManager
 from fastapi_fsp.models import Filter, FilterOperator
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
 class HeroOptimization(SQLModel, table=True):
@@ -39,7 +38,7 @@ def test_coerce_value_datetime_iso8601():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         created_at_col = columns["created_at"]
@@ -64,7 +63,7 @@ def test_coerce_value_datetime_other_formats():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         created_at_col = columns["created_at"]
@@ -89,7 +88,7 @@ def test_coerce_value_with_pytype_cache():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         age_col = columns["age"]
@@ -116,7 +115,7 @@ def test_column_type_caching():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         age_col = columns["age"]
@@ -130,17 +129,17 @@ def test_column_type_caching():
 
         # Get column type (should cache it)
         pytype1 = fsp._get_column_type(age_col)
-        assert pytype1 == int
+        assert pytype1 is int
 
         # Get column type again (should use cache)
         pytype2 = fsp._get_column_type(age_col)
-        assert pytype2 == int
+        assert pytype2 is int
         assert pytype1 is pytype2
 
         # Verify cache has the entry
         col_id = id(age_col)
         assert col_id in fsp._type_cache
-        assert fsp._type_cache[col_id] == int
+        assert fsp._type_cache[col_id] is int
 
 
 def test_build_filter_condition():
@@ -148,12 +147,12 @@ def test_build_filter_condition():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         age_col = columns["age"]
         name_col = columns["name"]
-        active_col = columns["active"]
+        columns["active"]
 
         # Test EQ condition
         condition = FSPManager._build_filter_condition(
@@ -245,7 +244,7 @@ def test_coerce_value_boolean_variations():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         active_col = columns["active"]
@@ -268,7 +267,7 @@ def test_coerce_value_integer_with_float_string():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         age_col = columns["age"]
@@ -308,7 +307,7 @@ def test_filter_condition_with_cached_type():
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine):
         query = select(HeroOptimization)
         columns = query.selected_columns
         age_col = columns["age"]

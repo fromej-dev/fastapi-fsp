@@ -3,11 +3,10 @@
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import StaticPool
-from sqlmodel import Field, Session, SQLModel, create_engine, select
-
 from fastapi_fsp.fsp import FSPManager
 from fastapi_fsp.models import PaginatedResponse
+from sqlalchemy import StaticPool
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
 class HeroStrict(SQLModel, table=True):

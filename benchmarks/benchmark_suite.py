@@ -6,10 +6,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlmodel import Field, Session, SQLModel, create_engine, select
-
 from fastapi_fsp.fsp import FSPManager
 from fastapi_fsp.models import PaginatedResponse
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
 class HeroBase(SQLModel):
@@ -139,7 +138,9 @@ class BenchmarkSuite:
 
         @self.app.get("/heroes/", response_model=PaginatedResponse[HeroPublic])
         def read_heroes(
-            *, session: Session = FastAPI.Depends(get_session), fsp: FSPManager = FastAPI.Depends(FSPManager)
+            *,
+            session: Session = FastAPI.Depends(get_session),
+            fsp: FSPManager = FastAPI.Depends(FSPManager),
         ):
             query = select(Hero)
             return fsp.generate_response(query, session)
@@ -194,7 +195,7 @@ class BenchmarkSuite:
         """Benchmark pagination at a deeper page."""
 
         def request():
-            return self.client.get(f"/heroes/?page=25&per_page=20")
+            return self.client.get("/heroes/?page=25&per_page=20")
 
         return self._run_benchmark("Deep Pagination (page 25)", request)
 
@@ -305,7 +306,10 @@ class BenchmarkSuite:
 
     def run_all_benchmarks(self) -> Dict[str, BenchmarkResult]:
         """Run all benchmarks and return results."""
-        print(f"Running benchmarks with {self.num_records} records, {self.iterations} iterations each...")
+        print(
+            f"Running benchmarks with {self.num_records} records, "
+            f"{self.iterations} iterations each..."
+        )
         print("=" * 80)
 
         benchmarks = [

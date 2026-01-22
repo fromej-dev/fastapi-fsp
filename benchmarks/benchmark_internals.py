@@ -2,13 +2,12 @@
 
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import Mock
-
-from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from fastapi_fsp.fsp import FSPManager
 from fastapi_fsp.models import Filter, FilterOperator, PaginationQuery, SortingQuery
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
 class Hero(SQLModel, table=True):
@@ -77,7 +76,7 @@ def benchmark_coerce_value():
     print("\n=== Benchmark: _coerce_value ===")
 
     engine = setup_database(10)
-    with Session(engine) as session:
+    with Session(engine):
         query = select(Hero)
         columns = query.selected_columns
 
@@ -135,7 +134,7 @@ def benchmark_apply_filter():
     print("\n=== Benchmark: _build_filter_condition ===")
 
     engine = setup_database(100)
-    with Session(engine) as session:
+    with Session(engine):
         base_query = select(Hero)
         columns = base_query.selected_columns
         age_col = columns["age"]
@@ -175,7 +174,7 @@ def benchmark_apply_filters():
     print("\n=== Benchmark: _apply_filters ===")
 
     engine = setup_database(100)
-    with Session(engine) as session:
+    with Session(engine):
         base_query = select(Hero)
         columns = base_query.selected_columns
 
@@ -222,7 +221,7 @@ def benchmark_apply_sort():
     print("\n=== Benchmark: _apply_sort ===")
 
     engine = setup_database(100)
-    with Session(engine) as session:
+    with Session(engine):
         base_query = select(Hero)
         columns = base_query.selected_columns
 
