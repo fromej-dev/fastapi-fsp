@@ -71,12 +71,12 @@ class BenchmarkResult:
         return (
             f"{self.name}:\n"
             f"  Iterations: {self.iterations}\n"
-            f"  Avg: {self.avg_time*1000:.2f}ms\n"
-            f"  Min: {self.min_time*1000:.2f}ms\n"
-            f"  Max: {self.max_time*1000:.2f}ms\n"
-            f"  P50: {self.p50_time*1000:.2f}ms\n"
-            f"  P95: {self.p95_time*1000:.2f}ms\n"
-            f"  P99: {self.p99_time*1000:.2f}ms"
+            f"  Avg: {self.avg_time * 1000:.2f}ms\n"
+            f"  Min: {self.min_time * 1000:.2f}ms\n"
+            f"  Max: {self.max_time * 1000:.2f}ms\n"
+            f"  P50: {self.p50_time * 1000:.2f}ms\n"
+            f"  P95: {self.p95_time * 1000:.2f}ms\n"
+            f"  P99: {self.p99_time * 1000:.2f}ms"
         )
 
 
@@ -145,9 +145,7 @@ class BenchmarkSuite:
             query = select(Hero)
             return fsp.generate_response(query, session)
 
-    def _run_benchmark(
-        self, name: str, request_func: Callable[[], Any]
-    ) -> BenchmarkResult:
+    def _run_benchmark(self, name: str, request_func: Callable[[], Any]) -> BenchmarkResult:
         """
         Run a single benchmark.
 
@@ -250,9 +248,7 @@ class BenchmarkSuite:
         """Benchmark IN operator with multiple values."""
 
         def request():
-            return self.client.get(
-                "/heroes/?field=city&operator=in&value=Chicago,Houston,Phoenix"
-            )
+            return self.client.get("/heroes/?field=city&operator=in&value=Chicago,Houston,Phoenix")
 
         return self._run_benchmark("Filter IN (3 values)", request)
 
@@ -346,16 +342,16 @@ class BenchmarkSuite:
 
         print("\nFastest to Slowest (by average time):")
         for i, result in enumerate(sorted_results, 1):
-            print(f"{i}. {result.name}: {result.avg_time*1000:.2f}ms avg")
+            print(f"{i}. {result.name}: {result.avg_time * 1000:.2f}ms avg")
 
 
 def main():
     """Run benchmark suite."""
     # Test with different dataset sizes
     for num_records in [100, 1000, 10000]:
-        print(f"\n\n{'='*80}")
+        print(f"\n\n{'=' * 80}")
         print(f"TESTING WITH {num_records} RECORDS")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
         suite = BenchmarkSuite(num_records=num_records, iterations=50)
         suite.setup()
