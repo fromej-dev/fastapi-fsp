@@ -89,15 +89,9 @@ def benchmark_coerce_value():
         # Test different type coercions
         tests = {
             "Integer coercion": lambda: FSPManager._coerce_value(age_col, "42"),
-            "Boolean coercion (true)": lambda: FSPManager._coerce_value(
-                deleted_col, "true"
-            ),
-            "Boolean coercion (false)": lambda: FSPManager._coerce_value(
-                deleted_col, "false"
-            ),
-            "Datetime coercion": lambda: FSPManager._coerce_value(
-                created_at_col, "2024-01-01"
-            ),
+            "Boolean coercion (true)": lambda: FSPManager._coerce_value(deleted_col, "true"),
+            "Boolean coercion (false)": lambda: FSPManager._coerce_value(deleted_col, "false"),
+            "Datetime coercion": lambda: FSPManager._coerce_value(created_at_col, "2024-01-01"),
             "String passthrough": lambda: FSPManager._coerce_value(name_col, "Hero_1"),
         }
 
@@ -247,9 +241,7 @@ def benchmark_apply_sort():
 
         tests = {
             "Sort by age ASC": lambda: fsp_asc._apply_sort(base_query, columns, sort_age_asc),
-            "Sort by name DESC": lambda: fsp_desc._apply_sort(
-                base_query, columns, sort_name_desc
-            ),
+            "Sort by name DESC": lambda: fsp_desc._apply_sort(base_query, columns, sort_name_desc),
             "No sorting": lambda: fsp_none._apply_sort(base_query, columns, None),
         }
 

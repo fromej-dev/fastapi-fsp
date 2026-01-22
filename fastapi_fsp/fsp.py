@@ -647,8 +647,7 @@ class FSPManager:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=(
-                            f"Unknown sort field '{sorting.sort_by}'. "
-                            f"Available fields: {available}"
+                            f"Unknown sort field '{sorting.sort_by}'. Available fields: {available}"
                         ),
                     )
                 # Unknown sort column; skip sorting in non-strict mode
