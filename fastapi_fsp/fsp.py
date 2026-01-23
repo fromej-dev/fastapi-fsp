@@ -195,6 +195,7 @@ class FSPManager:
         filters: Annotated[Optional[List[Filter]], Depends(_parse_filters)],
         sorting: Annotated[Optional[SortingQuery], Depends(_parse_sort)],
         pagination: Annotated[PaginationQuery, Depends(_parse_pagination)],
+        strict_mode: bool = False,
     ):
         """
         Initialize FSPManager.
@@ -204,11 +205,32 @@ class FSPManager:
             filters: Parsed filters
             sorting: Sorting configuration
             pagination: Pagination configuration
+            strict_mode: If True, raise errors for unknown fields instead of silently skipping
         """
         self.request = request
         self.filters = filters
         self.sorting = sorting
         self.pagination = pagination
+        self.strict_mode = strict_mode
+        self._type_cache: dict[int, Optional[type]] = {}
+
+    def _get_column_type(self, column: ColumnElement[Any]) -> Optional[type]:
+        """
+        Get the Python type of a column with caching.
+
+        Args:
+            column: SQLAlchemy column element
+
+        Returns:
+            Optional[type]: Python type of the column or None
+        """
+        col_id = id(column)
+        if col_id not in self._type_cache:
+            try:
+                self._type_cache[col_id] = getattr(column.type, "python_type", None)
+            except Exception:
+                self._type_cache[col_id] = None
+        return self._type_cache[col_id]
 
     def paginate(self, query: Select, session: Session) -> Any:
         """
@@ -257,8 +279,8 @@ class FSPManager:
             PaginatedResponse: Complete paginated response
         """
         columns_map = query.selected_columns
-        query = FSPManager._apply_filters(query, columns_map, self.filters)
-        query = FSPManager._apply_sort(query, columns_map, self.sorting)
+        query = self._apply_filters(query, columns_map, self.filters)
+        query = self._apply_sort(query, columns_map, self.sorting)
 
         total_items = self._count_total(query, session)
         data_page = self.paginate(query, session)
@@ -278,8 +300,8 @@ class FSPManager:
             PaginatedResponse: Complete paginated response
         """
         columns_map = query.selected_columns
-        query = FSPManager._apply_filters(query, columns_map, self.filters)
-        query = FSPManager._apply_sort(query, columns_map, self.sorting)
+        query = self._apply_filters(query, columns_map, self.filters)
+        query = self._apply_sort(query, columns_map, self.sorting)
 
         total_items = await self._count_total_async(query, session)
         data_page = await self.paginate_async(query, session)
@@ -338,22 +360,24 @@ class FSPManager:
         )
 
     @staticmethod
-    def _coerce_value(column: ColumnElement[Any], raw: str) -> Any:
+    def _coerce_value(column: ColumnElement[Any], raw: str, pytype: Optional[type] = None) -> Any:
         """
         Coerce raw string value to column's Python type.
 
         Args:
             column: SQLAlchemy column element
             raw: Raw string value
+            pytype: Optional pre-fetched python type (for performance)
 
         Returns:
             Any: Coerced value
         """
         # Try to coerce raw (str) to the column's python type for proper comparisons
-        try:
-            pytype = getattr(column.type, "python_type", None)
-        except Exception:
-            pytype = None
+        if pytype is None:
+            try:
+                pytype = getattr(column.type, "python_type", None)
+            except Exception:
+                pytype = None
         if pytype is None or isinstance(raw, pytype):
             return raw
         # Handle booleans represented as strings
@@ -373,12 +397,17 @@ class FSPManager:
                     return int(float(raw))
                 except ValueError:
                     return raw
-        # Handle dates represented as strings
+        # Handle dates represented as strings - optimized with fast path for ISO 8601
         if pytype is datetime:
             try:
-                return parse(raw)
-            except ValueError:
-                return raw
+                # Fast path for ISO 8601 format (most common)
+                return datetime.fromisoformat(raw)
+            except (ValueError, AttributeError):
+                # Fallback to flexible dateutil parser for other formats
+                try:
+                    return parse(raw)
+                except ValueError:
+                    return raw
         # Generic cast with fallback
         try:
             return pytype(raw)
@@ -412,91 +441,96 @@ class FSPManager:
         return hasattr(col, "ilike")
 
     @staticmethod
-    def _apply_filter(query: Select, column: ColumnElement[Any], f: Filter):
+    def _build_filter_condition(
+        column: ColumnElement[Any], f: Filter, pytype: Optional[type] = None
+    ) -> Optional[Any]:
         """
-        Apply a single filter to a query.
+        Build a filter condition for a query.
 
         Args:
-            query: Base SQLAlchemy Select query
             column: Column to apply filter to
             f: Filter to apply
+            pytype: Optional pre-fetched python type (for performance)
 
         Returns:
-            Select: Query with filter applied
+            Optional[Any]: SQLAlchemy condition or None if invalid
         """
         op = f.operator  # type: FilterOperator
         raw_value = f.value  # type: str
 
         # Build conditions based on operator
         if op == FilterOperator.EQ:
-            query = query.where(column == FSPManager._coerce_value(column, raw_value))
+            return column == FSPManager._coerce_value(column, raw_value, pytype)
         elif op == FilterOperator.NE:
-            query = query.where(column != FSPManager._coerce_value(column, raw_value))
+            return column != FSPManager._coerce_value(column, raw_value, pytype)
         elif op == FilterOperator.GT:
-            query = query.where(column > FSPManager._coerce_value(column, raw_value))
+            return column > FSPManager._coerce_value(column, raw_value, pytype)
         elif op == FilterOperator.GTE:
-            query = query.where(column >= FSPManager._coerce_value(column, raw_value))
+            return column >= FSPManager._coerce_value(column, raw_value, pytype)
         elif op == FilterOperator.LT:
-            query = query.where(column < FSPManager._coerce_value(column, raw_value))
+            return column < FSPManager._coerce_value(column, raw_value, pytype)
         elif op == FilterOperator.LTE:
-            query = query.where(column <= FSPManager._coerce_value(column, raw_value))
+            return column <= FSPManager._coerce_value(column, raw_value, pytype)
         elif op == FilterOperator.LIKE:
-            query = query.where(column.like(raw_value))
+            return column.like(raw_value)
         elif op == FilterOperator.NOT_LIKE:
-            query = query.where(not_(column.like(raw_value)))
+            return not_(column.like(raw_value))
         elif op == FilterOperator.ILIKE:
             pattern = raw_value
             if FSPManager._ilike_supported(column):
-                query = query.where(column.ilike(pattern))
+                return column.ilike(pattern)
             else:
-                query = query.where(func.lower(column).like(pattern.lower()))
+                return func.lower(column).like(pattern.lower())
         elif op == FilterOperator.NOT_ILIKE:
             pattern = raw_value
             if FSPManager._ilike_supported(column):
-                query = query.where(not_(column.ilike(pattern)))
+                return not_(column.ilike(pattern))
             else:
-                query = query.where(not_(func.lower(column).like(pattern.lower())))
+                return not_(func.lower(column).like(pattern.lower()))
         elif op == FilterOperator.IN:
             vals = [
-                FSPManager._coerce_value(column, v) for v in FSPManager._split_values(raw_value)
+                FSPManager._coerce_value(column, v, pytype)
+                for v in FSPManager._split_values(raw_value)
             ]
-            query = query.where(column.in_(vals))
+            return column.in_(vals)
         elif op == FilterOperator.NOT_IN:
             vals = [
-                FSPManager._coerce_value(column, v) for v in FSPManager._split_values(raw_value)
+                FSPManager._coerce_value(column, v, pytype)
+                for v in FSPManager._split_values(raw_value)
             ]
-            query = query.where(not_(column.in_(vals)))
+            return not_(column.in_(vals))
         elif op == FilterOperator.BETWEEN:
             vals = FSPManager._split_values(raw_value)
             if len(vals) == 2:
-                # Ignore malformed between; alternatively raise 400
-                low = FSPManager._coerce_value(column, vals[0])
-                high = FSPManager._coerce_value(column, vals[1])
-                query = query.where(column.between(low, high))
+                low = FSPManager._coerce_value(column, vals[0], pytype)
+                high = FSPManager._coerce_value(column, vals[1], pytype)
+                return column.between(low, high)
+            # Ignore malformed between
+            return None
         elif op == FilterOperator.IS_NULL:
-            query = query.where(column.is_(None))
+            return column.is_(None)
         elif op == FilterOperator.IS_NOT_NULL:
-            query = query.where(column.is_not(None))
+            return column.is_not(None)
         elif op == FilterOperator.STARTS_WITH:
             pattern = f"{raw_value}%"
             if FSPManager._ilike_supported(column):
-                query = query.where(column.ilike(pattern))
+                return column.ilike(pattern)
             else:
-                query = query.where(func.lower(column).like(pattern.lower()))
+                return func.lower(column).like(pattern.lower())
         elif op == FilterOperator.ENDS_WITH:
             pattern = f"%{raw_value}"
             if FSPManager._ilike_supported(column):
-                query = query.where(column.ilike(pattern))
+                return column.ilike(pattern)
             else:
-                query = query.where(func.lower(column).like(pattern.lower()))
+                return func.lower(column).like(pattern.lower())
         elif op == FilterOperator.CONTAINS:
             pattern = f"%{raw_value}%"
             if FSPManager._ilike_supported(column):
-                query = query.where(column.ilike(pattern))
+                return column.ilike(pattern)
             else:
-                query = query.where(func.lower(column).like(pattern.lower()))
-        # Unknown operator: skip
-        return query
+                return func.lower(column).like(pattern.lower())
+        # Unknown operator
+        return None
 
     @staticmethod
     def _count_total(query: Select, session: Session) -> int:
@@ -530,8 +564,8 @@ class FSPManager:
         result = await session.exec(count_query)
         return result.one()
 
-    @staticmethod
     def _apply_filters(
+        self,
         query: Select,
         columns_map: ColumnCollection[str, ColumnElement[Any]],
         filters: Optional[List[Filter]],
@@ -546,19 +580,41 @@ class FSPManager:
 
         Returns:
             Select: Query with filters applied
+
+        Raises:
+            HTTPException: If strict_mode is True and unknown field is encountered
         """
-        if filters:
-            for f in filters:
-                # filter of `filters` has been validated in the `_parse_filters`
-                column = columns_map.get(f.field)
-                # Skip unknown fields silently
-                if column is not None:
-                    query = FSPManager._apply_filter(query, column, f)
+        if not filters:
+            return query
+
+        conditions = []
+        for f in filters:
+            # filter of `filters` has been validated in the `_parse_filters`
+            column = columns_map.get(f.field)
+            if column is None:
+                if self.strict_mode:
+                    available = ", ".join(sorted(columns_map.keys()))
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Unknown field '{f.field}'. Available fields: {available}",
+                    )
+                # Skip unknown fields silently in non-strict mode
+                continue
+
+            # Get column type from cache for better performance
+            pytype = self._get_column_type(column)
+            condition = FSPManager._build_filter_condition(column, f, pytype)
+            if condition is not None:
+                conditions.append(condition)
+
+        # Apply all conditions in a single where() call for better SQL generation
+        if conditions:
+            query = query.where(*conditions)
 
         return query
 
-    @staticmethod
     def _apply_sort(
+        self,
         query: Select,
         columns_map: ColumnCollection[str, ColumnElement[Any]],
         sorting: Optional[SortingQuery],
@@ -573,6 +629,9 @@ class FSPManager:
 
         Returns:
             Select: Query with sorting applied
+
+        Raises:
+            HTTPException: If strict_mode is True and unknown sort field is encountered
         """
         if sorting and sorting.sort_by:
             column = columns_map.get(sorting.sort_by)
@@ -581,9 +640,20 @@ class FSPManager:
                     column = getattr(query.column_descriptions[0]["entity"], sorting.sort_by, None)
                 except Exception:
                     pass
-            # Unknown sort column; skip sorting
-            if column is not None:
-                query = query.order_by(
-                    column.desc() if sorting.order == SortingOrder.DESC else column.asc()
-                )
+
+            if column is None:
+                if self.strict_mode:
+                    available = ", ".join(sorted(columns_map.keys()))
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Unknown sort field '{sorting.sort_by}'. Available fields: {available}"
+                        ),
+                    )
+                # Unknown sort column; skip sorting in non-strict mode
+                return query
+
+            query = query.order_by(
+                column.desc() if sorting.order == SortingOrder.DESC else column.asc()
+            )
         return query

@@ -1,0 +1,79 @@
+================================================================================
+FASTAPI-FSP INTERNAL BENCHMARKS
+================================================================================
+
+=== Benchmark: _coerce_value ===
+  Integer coercion               - Avg:  0.000ms, P50:  0.000ms, P95:  0.000ms
+  Boolean coercion (true)        - Avg:  0.000ms, P50:  0.000ms, P95:  0.001ms
+  Boolean coercion (false)       - Avg:  0.000ms, P50:  0.000ms, P95:  0.001ms
+  Datetime coercion              - Avg:  0.000ms, P50:  0.000ms, P95:  0.000ms
+  String passthrough             - Avg:  0.001ms, P50:  0.001ms, P95:  0.001ms
+
+=== Benchmark: _split_values ===
+  Split 3 values                 - Avg:  0.000ms, P50:  0.000ms, P95:  0.000ms
+  Split 10 values                - Avg:  0.002ms, P50:  0.002ms, P95:  0.002ms
+  Split with spaces              - Avg:  0.000ms, P50:  0.000ms, P95:  0.001ms
+
+=== Benchmark: _build_filter_condition ===
+  EQ filter                      - Avg:  0.011ms, P50:  0.011ms, P95:  0.018ms
+  GT filter                      - Avg:  0.012ms, P50:  0.011ms, P95:  0.020ms
+  ILIKE filter                   - Avg:  0.012ms, P50:  0.012ms, P95:  0.016ms
+  IN filter (3 values)           - Avg:  0.026ms, P50:  0.021ms, P95:  0.038ms
+  BETWEEN filter                 - Avg:  0.019ms, P50:  0.017ms, P95:  0.028ms
+
+=== Benchmark: _apply_filters ===
+  1 filter                       - Avg:  0.013ms, P50:  0.013ms, P95:  0.017ms
+  3 filters                      - Avg:  0.039ms, P50:  0.039ms, P95:  0.046ms
+  5 filters                      - Avg:  0.070ms, P50:  0.067ms, P95:  0.087ms
+  No filters                     - Avg:  0.000ms, P50:  0.000ms, P95:  0.000ms
+
+=== Benchmark: _apply_sort ===
+  Sort by age ASC                - Avg:  0.007ms, P50:  0.006ms, P95:  0.011ms
+  Sort by name DESC              - Avg:  0.008ms, P50:  0.007ms, P95:  0.013ms
+  No sorting                     - Avg:  0.000ms, P50:  0.000ms, P95:  0.000ms
+
+=== Benchmark: _count_total ===
+
+  Dataset: 100 records
+    Count all records              - Avg:  0.129ms, P50:  0.124ms, P95:  0.152ms
+    Count filtered records         - Avg:  0.159ms, P50:  0.146ms, P95:  0.236ms
+
+  Dataset: 1000 records
+    Count all records              - Avg:  0.133ms, P50:  0.125ms, P95:  0.167ms
+    Count filtered records         - Avg:  0.171ms, P50:  0.157ms, P95:  0.239ms
+
+  Dataset: 10000 records
+    Count all records              - Avg:  0.136ms, P50:  0.129ms, P95:  0.171ms
+    Count filtered records         - Avg:  0.264ms, P50:  0.245ms, P95:  0.421ms
+
+=== Benchmark: paginate ===
+
+  Dataset: 100 records
+    Page 1 (20 items)              - Avg:  0.216ms, P50:  0.212ms, P95:  0.232ms
+    Page 25 (20 items)             - Avg:  0.096ms, P50:  0.095ms, P95:  0.110ms
+
+  Dataset: 1000 records
+    Page 1 (20 items)              - Avg:  0.231ms, P50:  0.226ms, P95:  0.263ms
+    Page 25 (20 items)             - Avg:  0.257ms, P50:  0.231ms, P95:  0.482ms
+
+  Dataset: 10000 records
+    Page 1 (20 items)              - Avg:  0.228ms, P50:  0.227ms, P95:  0.257ms
+    Page 25 (20 items)             - Avg:  0.231ms, P50:  0.226ms, P95:  0.267ms
+
+=== Benchmark: generate_response (full pipeline) ===
+
+  Dataset: 100 records
+    Simple (no filters/sort)       - Avg:  0.544ms, P50:  0.541ms, P95:  0.630ms
+    Complex (filters + sort)       - Avg:  0.707ms, P50:  0.691ms, P95:  0.797ms
+
+  Dataset: 1000 records
+    Simple (no filters/sort)       - Avg:  0.642ms, P50:  0.587ms, P95:  0.932ms
+    Complex (filters + sort)       - Avg:  0.998ms, P50:  0.984ms, P95:  1.071ms
+
+  Dataset: 10000 records
+    Simple (no filters/sort)       - Avg:  0.596ms, P50:  0.593ms, P95:  0.656ms
+    Complex (filters + sort)       - Avg:  3.019ms, P50:  3.007ms, P95:  3.232ms
+
+================================================================================
+BENCHMARKS COMPLETE
+================================================================================
