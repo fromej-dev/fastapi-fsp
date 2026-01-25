@@ -4,29 +4,28 @@
 fastapi-fsp
 
 ## pypi package version
-0.2.1
+0.3.0
 
 ## pypi package description
-Package to implement filtering, sorting and pagination in FastAPI endpoints
-using SQLModel
+Filter, Sort, and Paginate (FSP) utilities for FastAPI + SQLModel.
 
-Endpoint Depends class that parses query parameters for filtering,
-sorting and pagination. It performs all necessary checks.
-Filtering is with query params: field, operator, value (support multiple)
-Sorting is with query params: sort, order.
-Pagination is with query params: page, per_page.
+A FastAPI dependency that parses query parameters for filtering, sorting, and pagination. Includes:
 
-a request with query params:
-http://localhost:8000/items?field=name&operator=eq&value=Deadpond&sort=name&order=asc&page=1&per_page=10
+- **Filtering**: Rich operators (eq, ne, lt, lte, gt, gte, in, between, like/ilike, null checks, contains/starts_with/ends_with)
+- **Sorting**: By field (asc/desc)
+- **Pagination**: With page/per_page and HATEOAS links
+- **FilterBuilder**: Fluent API for building filters programmatically
+- **FSPConfig**: Centralized configuration with validation
+- **CommonFilters**: Pre-built filter presets for common patterns
+- **Strict Mode**: Helpful error messages for unknown fields
 
-A response with data:
-
-data: list of objects
-meta: pagination info, filters, sort, etc.
-links: pagination links
-
-Example response:
+### Example Request
 ```
+GET /items?field=name&operator=eq&value=Deadpond&sort=name&order=asc&page=1&per_page=10
+```
+
+### Example Response
+```json
 {
   "data": [
     {
@@ -34,7 +33,7 @@ Example response:
       "name": "Deadpond",
       "secret_name": "Dive Wilson",
       "age": 28
-    },
+    }
   ],
   "meta": {
     "pagination": {
@@ -51,74 +50,137 @@ Example response:
       }
     ],
     "sort": {
-      "sort": "name",
+      "sort_by": "name",
       "order": "asc"
-    } 
+    }
   },
   "links": {
-    "self": "http://127.0.0.1:8000/heroes/?field=age&operator=gt&value=20&page=1&limit=2",
-    "first": "http://127.0.0.1:8000/heroes/?field=age&operator=gt&value=20&page=1&limit=2",
-    "next": "http://127.0.0.1:8000/heroes/?field=age&operator=gt&value=20&page=2&limit=2",
-    "prev": null
+    "self": "/items/?page=1&per_page=10",
+    "first": "/items/?page=1&per_page=10",
+    "next": null,
+    "prev": null,
+    "last": "/items/?page=1&per_page=10"
   }
 }
 ```
 
+## Basic Usage
 
-Example usage in endpoint:
+```python
+from fastapi import Depends, FastAPI
+from sqlmodel import Session, select
 
-class Item(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
-    name: str
-    secret_name: str | None = None
-    age: int | None = None
+from fastapi_fsp import FSPManager, PaginatedResponse
 
-@app.get("/items/", response_model=FSPResponse[Item])
+@app.get("/items/", response_model=PaginatedResponse[Item])
 def read_items(
-    fsp: Depends(FSPManager(Item)),
+    session: Session = Depends(get_session),
+    fsp: FSPManager = Depends(FSPManager)
 ):
-    query = Item.select()
-    return fsp.make_response(query)
+    query = select(Item)
+    return fsp.generate_response(query, session)
+```
 
-also support async endpoints:
+## FilterBuilder API (v0.3.0)
 
-@app.get("/items/", response_model=FSPResponse[Item])
+```python
+from fastapi_fsp import FilterBuilder
+
+filters = (
+    FilterBuilder()
+    .where("age").gte(30)
+    .where("city").eq("Chicago")
+    .where("active").eq(True)
+    .build()
+)
+```
+
+## CommonFilters Presets (v0.3.0)
+
+```python
+from fastapi_fsp import CommonFilters
+
+# Active records
+filters = CommonFilters.active()
+
+# Recent records
+filters = CommonFilters.recent(days=7)
+
+# Combine presets
+filters = CommonFilters.active() + CommonFilters.recent(days=30)
+```
+
+## FSPConfig (v0.3.0)
+
+```python
+from fastapi_fsp import FSPConfig, FSPPresets
+
+config = FSPConfig(
+    max_per_page=50,
+    strict_mode=True,
+)
+
+# Or use presets
+config = FSPPresets.strict()
+config = FSPPresets.high_volume(max_per_page=500)
+```
+
+## Convenience Methods (v0.3.0)
+
+```python
+# Simple model query
+return fsp.from_model(Item, session)
+
+# Method chaining
+return (
+    fsp
+    .with_filters(CommonFilters.active())
+    .apply_config(FSPPresets.strict())
+    .generate_response(select(Item), session)
+)
+```
+
+## Async Support
+
+```python
+@app.get("/items/", response_model=PaginatedResponse[Item])
 async def read_items(
-    fsp: Depends(FSPManager(Item)),
+    session: AsyncSession = Depends(get_session),
+    fsp: FSPManager = Depends(FSPManager)
 ):
-    query = Item.select()
-    return await fsp.make_response(query)
+    return await fsp.from_model_async(Item, session)
+```
 
 ## pypi package dependencies
-use the following dependencies:
 - uv as package manager
-
-
-- black as code formatter
-- isort as import formatter
-- flake8 as linter
+- ruff as linter/formatter
 - pytest as test runner
-- pytest-cov as test coverage runner
-- pytest-asyncio as async test runner
-- pytest-mock as mock runner
+- pytest-cov for coverage
+- pytest-asyncio for async tests
 - FastAPI
 - SQLModel
 - pydantic
-
+- python-dateutil
 
 ## pypi package keywords
-fastapi, SQLModel, orm, filtering, sorting, pagination
+fastapi, SQLModel, orm, filtering, sorting, pagination, api, rest
 
-## open source on github
-Add a license file
+## Open Source
+MIT License
 
-## Documentations
-Add a README.md file with documentation
-Add mkdocs documentation with mkdocs material theme
-Add an implementation example
+## Documentation
+- README.md with comprehensive documentation
+- OPTIMIZATION_ANALYSIS.md with performance analysis
+- RECOMMENDATIONS.md with implementation status
 
-## full test coverage
-Implement unit tests using pytest
+## Test Coverage
+- 162 tests
+- 93% coverage
+- Unit tests for all components
+- Integration tests for full pipeline
+- Benchmark CI workflow
 
-## workflow to deploy to run all tests and package and publish to pypi
-Github Actions workflow file to deploy to run all tests and package and publish to pypi
+## CI/CD
+- GitHub Actions for CI (lint + tests)
+- GitHub Actions for benchmarks
+- Release workflow for PyPI publishing
