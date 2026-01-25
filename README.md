@@ -118,6 +118,65 @@ Notes:
 - Both formats are equivalent; the indexed format takes precedence if present.
 - If any filter is incomplete (missing operator or value in the indexed form, or mismatched counts of simple triplets), the API responds with HTTP 400.
 
+## Filtering on Computed Fields
+
+You can filter (and sort) on SQLAlchemy `hybrid_property` fields that have a SQL expression defined. This enables filtering on calculated or derived values at the database level.
+
+### Defining a Computed Field
+
+```python
+from typing import ClassVar, Optional
+from sqlalchemy import func
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlmodel import Field, SQLModel
+
+class HeroBase(SQLModel):
+    name: str = Field(index=True)
+    secret_name: str
+    age: Optional[int] = Field(default=None)
+    full_name: ClassVar[str]  # Required: declare as ClassVar for Pydantic
+
+    @hybrid_property
+    def full_name(self) -> str:
+        """Python-level implementation (used on instances)."""
+        return f"{self.name}-{self.secret_name}"
+
+    @full_name.expression
+    def full_name(cls):
+        """SQL-level implementation (used in queries)."""
+        return func.concat(cls.name, "-", cls.secret_name)
+
+class Hero(HeroBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+class HeroPublic(HeroBase):
+    id: int
+    full_name: str  # Include in response model
+```
+
+### Querying Computed Fields
+
+Once defined, you can filter and sort on the computed field like any regular field:
+
+```
+# Filter by computed field
+GET /heroes/?field=full_name&operator=eq&value=Spider-Man
+GET /heroes/?field=full_name&operator=ilike&value=%man
+GET /heroes/?field=full_name&operator=contains&value=Spider
+
+# Sort by computed field
+GET /heroes/?sort_by=full_name&order=asc
+
+# Combine with other filters
+GET /heroes/?field=full_name&operator=starts_with&value=Spider&field=age&operator=gte&value=21
+```
+
+### Requirements
+
+- The `hybrid_property` must have an `.expression` decorator that returns a valid SQL expression
+- The field should be declared as `ClassVar[type]` in the SQLModel base class to work with Pydantic
+- Only computed fields with SQL expressions are supported; Python-only properties cannot be filtered at the database level
+
 ## Response model
 
 ```
