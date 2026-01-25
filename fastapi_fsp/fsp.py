@@ -228,9 +228,53 @@ class FSPManager:
         if col_id not in self._type_cache:
             try:
                 self._type_cache[col_id] = getattr(column.type, "python_type", None)
-            except Exception:
+            except (AttributeError, NotImplementedError):
+                # For computed fields (hybrid_property, etc.), type inference may fail
                 self._type_cache[col_id] = None
         return self._type_cache[col_id]
+
+    @staticmethod
+    def _get_entity_attribute(query: Select, field: str) -> Optional[ColumnElement[Any]]:
+        """
+        Try to get a column-like attribute from the query's entity.
+
+        This enables filtering/sorting on computed fields like hybrid_property
+        that have SQL expressions defined.
+
+        Args:
+            query: SQLAlchemy Select query
+            field: Name of the field/attribute to get
+
+        Returns:
+            Optional[ColumnElement]: The SQL expression if available, None otherwise
+        """
+        try:
+            # Get the entity class from the query
+            column_descriptions = query.column_descriptions
+            if not column_descriptions:
+                return None
+
+            entity = column_descriptions[0].get("entity")
+            if entity is None:
+                return None
+
+            # Get the attribute from the entity class
+            attr = getattr(entity, field, None)
+            if attr is None:
+                return None
+
+            # Check if it's directly usable as a ColumnElement (hybrid_property with expression)
+            # When accessing a hybrid_property on the class, it returns the SQL expression
+            if isinstance(attr, ColumnElement):
+                return attr
+
+            # Some expressions may need to call __clause_element__
+            if hasattr(attr, "__clause_element__"):
+                return attr.__clause_element__()
+
+            return None
+        except Exception:
+            return None
 
     def paginate(self, query: Select, session: Session) -> Any:
         """
@@ -591,6 +635,11 @@ class FSPManager:
         for f in filters:
             # filter of `filters` has been validated in the `_parse_filters`
             column = columns_map.get(f.field)
+
+            # Fall back to computed fields (hybrid_property, etc.) if not in columns_map
+            if column is None:
+                column = FSPManager._get_entity_attribute(query, f.field)
+
             if column is None:
                 if self.strict_mode:
                     available = ", ".join(sorted(columns_map.keys()))
@@ -635,11 +684,10 @@ class FSPManager:
         """
         if sorting and sorting.sort_by:
             column = columns_map.get(sorting.sort_by)
+
+            # Fall back to computed fields (hybrid_property, etc.) if not in columns_map
             if column is None:
-                try:
-                    column = getattr(query.column_descriptions[0]["entity"], sorting.sort_by, None)
-                except Exception:
-                    pass
+                column = FSPManager._get_entity_attribute(query, sorting.sort_by)
 
             if column is None:
                 if self.strict_mode:
