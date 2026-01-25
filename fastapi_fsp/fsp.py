@@ -2,15 +2,16 @@
 
 from datetime import datetime
 from math import ceil
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any, List, Optional, Type
 
 from dateutil.parser import parse
 from fastapi import Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
 from sqlalchemy import ColumnCollection, ColumnElement, Select, func
-from sqlmodel import Session, not_, select
+from sqlmodel import Session, SQLModel, not_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from fastapi_fsp.config import FSPConfig
 from fastapi_fsp.models import (
     Filter,
     FilterOperator,
@@ -705,3 +706,106 @@ class FSPManager:
                 column.desc() if sorting.order == SortingOrder.DESC else column.asc()
             )
         return query
+
+    def apply_config(self, config: FSPConfig) -> "FSPManager":
+        """
+        Apply a configuration to this FSPManager instance.
+
+        Args:
+            config: FSPConfig instance with settings
+
+        Returns:
+            FSPManager: Self for chaining
+        """
+        self.strict_mode = config.strict_mode
+        # Validate and constrain pagination values
+        self.pagination.page = config.validate_page(self.pagination.page)
+        self.pagination.per_page = config.validate_per_page(self.pagination.per_page)
+        return self
+
+    def from_model(
+        self,
+        model: Type[SQLModel],
+        session: Session,
+    ) -> PaginatedResponse[Any]:
+        """
+        Convenience method to query directly from a model.
+
+        This simplifies the common pattern of selecting all from a model.
+
+        Args:
+            model: SQLModel class to query
+            session: Database session
+
+        Returns:
+            PaginatedResponse: Complete paginated response
+
+        Example:
+            @app.get("/heroes/")
+            def read_heroes(
+                session: Session = Depends(get_session),
+                fsp: FSPManager = Depends(FSPManager)
+            ):
+                return fsp.from_model(Hero, session)
+        """
+        query = select(model)
+        return self.generate_response(query, session)
+
+    async def from_model_async(
+        self,
+        model: Type[SQLModel],
+        session: AsyncSession,
+    ) -> PaginatedResponse[Any]:
+        """
+        Convenience method to query directly from a model (async version).
+
+        This simplifies the common pattern of selecting all from a model.
+
+        Args:
+            model: SQLModel class to query
+            session: Async database session
+
+        Returns:
+            PaginatedResponse: Complete paginated response
+
+        Example:
+            @app.get("/heroes/")
+            async def read_heroes(
+                session: AsyncSession = Depends(get_session),
+                fsp: FSPManager = Depends(FSPManager)
+            ):
+                return await fsp.from_model_async(Hero, session)
+        """
+        query = select(model)
+        return await self.generate_response_async(query, session)
+
+    def with_filters(self, filters: Optional[List[Filter]]) -> "FSPManager":
+        """
+        Set or override filters.
+
+        Args:
+            filters: List of filters to apply
+
+        Returns:
+            FSPManager: Self for chaining
+        """
+        if filters:
+            if self.filters:
+                self.filters.extend(filters)
+            else:
+                self.filters = filters
+        return self
+
+    def with_sorting(self, sorting: Optional[SortingQuery]) -> "FSPManager":
+        """
+        Set or override sorting.
+
+        Args:
+            sorting: Sorting configuration
+
+        Returns:
+            FSPManager: Self for chaining
+        """
+        if sorting:
+            self.sorting = sorting
+        return self

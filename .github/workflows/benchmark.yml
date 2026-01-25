@@ -1,0 +1,90 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Run benchmarks
+        id: benchmark
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          uv run python benchmarks/benchmark_internals.py | tee benchmark_output.txt
+          cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check performance thresholds
+        run: |
+          # Extract key metrics and check against thresholds
+          python3 << 'EOF'
+          import re
+          import sys
+
+          # Define performance thresholds (in milliseconds)
+          THRESHOLDS = {
+              "5 filters": 0.100,  # 100 microseconds max
+              "Complex (filters + sort)": 5.0,  # 5ms max for 10k records
+          }
+
+          with open("benchmark_output.txt") as f:
+              content = f.read()
+
+          failed = False
+
+          # Check 5 filters performance
+          match = re.search(r"5 filters\s+- Avg:\s+([\d.]+)ms", content)
+          if match:
+              value = float(match.group(1))
+              threshold = THRESHOLDS["5 filters"]
+              if value > threshold:
+                  print(f"FAIL: 5 filters ({value}ms) exceeds threshold ({threshold}ms)")
+                  failed = True
+              else:
+                  print(f"PASS: 5 filters ({value}ms) within threshold ({threshold}ms)")
+
+          # Check complex query for 10k records
+          # Find the 10k dataset section and get the complex query time
+          match = re.search(r"Dataset: 10000 records.*?Complex \(filters \+ sort\)\s+- Avg:\s+([\d.]+)ms",
+                            content, re.DOTALL)
+          if match:
+              value = float(match.group(1))
+              threshold = THRESHOLDS["Complex (filters + sort)"]
+              if value > threshold:
+                  print(f"FAIL: Complex query 10k ({value}ms) exceeds threshold ({threshold}ms)")
+                  failed = True
+              else:
+                  print(f"PASS: Complex query 10k ({value}ms) within threshold ({threshold}ms)")
+
+          if failed:
+              print("\nPerformance regression detected!")
+              sys.exit(1)
+          else:
+              print("\nAll benchmarks within acceptable thresholds.")
+          EOF
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_output.txt
