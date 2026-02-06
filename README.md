@@ -177,6 +177,164 @@ GET /heroes/?field=full_name&operator=starts_with&value=Spider&field=age&operato
 - The field should be declared as `ClassVar[type]` in the SQLModel base class to work with Pydantic
 - Only computed fields with SQL expressions are supported; Python-only properties cannot be filtered at the database level
 
+## FilterBuilder API
+
+For programmatic filter creation, use the fluent `FilterBuilder` API:
+
+```python
+from fastapi_fsp import FilterBuilder
+
+# Instead of manually creating Filter objects:
+# filters = [
+#     Filter(field="age", operator=FilterOperator.GTE, value="30"),
+#     Filter(field="city", operator=FilterOperator.EQ, value="Chicago"),
+# ]
+
+# Use the builder pattern:
+filters = (
+    FilterBuilder()
+    .where("age").gte(30)
+    .where("city").eq("Chicago")
+    .where("active").eq(True)
+    .where("tags").in_(["python", "fastapi"])
+    .where("created_at").between("2024-01-01", "2024-12-31")
+    .build()
+)
+
+# Use with FSPManager
+@app.get("/heroes/")
+def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+    additional_filters = FilterBuilder().where("deleted").eq(False).build()
+    fsp.with_filters(additional_filters)
+    return fsp.generate_response(select(Hero), session)
+```
+
+### Available FilterBuilder Methods
+
+| Method | Description |
+|--------|-------------|
+| `.eq(value)` | Equal to |
+| `.ne(value)` | Not equal to |
+| `.gt(value)` | Greater than |
+| `.gte(value)` | Greater than or equal |
+| `.lt(value)` | Less than |
+| `.lte(value)` | Less than or equal |
+| `.like(pattern)` | Case-sensitive LIKE |
+| `.ilike(pattern)` | Case-insensitive LIKE |
+| `.in_(values)` | IN list |
+| `.not_in(values)` | NOT IN list |
+| `.between(low, high)` | BETWEEN range |
+| `.is_null()` | IS NULL |
+| `.is_not_null()` | IS NOT NULL |
+| `.starts_with(prefix)` | Starts with (case-insensitive) |
+| `.ends_with(suffix)` | Ends with (case-insensitive) |
+| `.contains(substring)` | Contains (case-insensitive) |
+
+## Common Filter Presets
+
+For frequently used filter patterns, use `CommonFilters`:
+
+```python
+from fastapi_fsp import CommonFilters
+
+# Active (non-deleted) records
+filters = CommonFilters.active()  # deleted=false
+
+# Recent records (last 7 days)
+filters = CommonFilters.recent(days=7)
+
+# Date range
+filters = CommonFilters.date_range(start=datetime(2024, 1, 1), end=datetime(2024, 12, 31))
+
+# Records created today
+filters = CommonFilters.today()
+
+# Null checks
+filters = CommonFilters.not_null("email")
+filters = CommonFilters.is_null("deleted_at")
+
+# Search
+filters = CommonFilters.search("name", "john", match_type="contains")
+
+# Combine presets
+filters = CommonFilters.active() + CommonFilters.recent(days=30)
+```
+
+## Configuration
+
+Customize FSPManager behavior with `FSPConfig`:
+
+```python
+from fastapi_fsp import FSPConfig, FSPPresets
+
+# Custom configuration
+config = FSPConfig(
+    max_per_page=50,
+    default_per_page=20,
+    strict_mode=True,  # Raise errors for unknown fields
+    max_page=100,
+    allow_deep_pagination=False,
+)
+
+# Or use presets
+config = FSPPresets.strict()  # strict_mode=True
+config = FSPPresets.limited_pagination(max_page=50)  # Limit deep pagination
+config = FSPPresets.high_volume(max_per_page=500)  # High-volume APIs
+
+# Apply configuration
+@app.get("/heroes/")
+def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+    fsp.apply_config(config)
+    return fsp.generate_response(select(Hero), session)
+```
+
+### Strict Mode
+
+When `strict_mode=True`, FSPManager raises HTTP 400 errors for unknown filter/sort fields:
+
+```python
+# With strict_mode=True, this raises HTTP 400:
+# GET /heroes/?field=unknown_field&operator=eq&value=test
+# Error: "Unknown field 'unknown_field'. Available fields: age, id, name, secret_name"
+```
+
+## Convenience Methods
+
+### from_model()
+
+Simplify common queries with `from_model()`:
+
+```python
+@app.get("/heroes/")
+def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+    # Instead of:
+    # query = select(Hero)
+    # return fsp.generate_response(query, session)
+
+    # Use:
+    return fsp.from_model(Hero, session)
+
+# Async version
+@app.get("/heroes/")
+async def read_heroes(session: AsyncSession = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+    return await fsp.from_model_async(Hero, session)
+```
+
+### Method Chaining
+
+Chain configuration methods:
+
+```python
+@app.get("/heroes/")
+def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+    return (
+        fsp
+        .with_filters(CommonFilters.active())
+        .apply_config(FSPPresets.strict())
+        .generate_response(select(Hero), session)
+    )
+```
+
 ## Response model
 
 ```
