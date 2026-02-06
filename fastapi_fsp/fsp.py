@@ -1,28 +1,25 @@
 """FastAPI-SQLModel-Pagination module"""
 
-from datetime import datetime
-from math import ceil
 from typing import Annotated, Any, List, Optional, Type
 
-from dateutil.parser import parse
 from fastapi import Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
-from sqlalchemy import ColumnCollection, ColumnElement, Select, func
-from sqlmodel import Session, SQLModel, not_, select
+from sqlalchemy import ColumnCollection, ColumnElement, Select
+from sqlmodel import Session, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from fastapi_fsp.config import FSPConfig
+from fastapi_fsp.filters import FilterEngine, _coerce_value, _ilike_supported, _split_values
 from fastapi_fsp.models import (
     Filter,
     FilterOperator,
-    Links,
-    Meta,
     PaginatedResponse,
-    Pagination,
     PaginationQuery,
     SortingOrder,
     SortingQuery,
 )
+from fastapi_fsp.pagination import PaginationEngine
+from fastapi_fsp.sorting import SortEngine
 
 
 def _parse_one_filter_at(i: int, field: str, operator: str, value: str) -> Filter:
@@ -187,7 +184,14 @@ class FSPManager:
     """
     FastAPI Filtering, Sorting, and Pagination Manager.
 
-    Handles parsing query parameters and applying them to SQLModel queries.
+    Orchestrates FilterEngine, SortEngine, and PaginationEngine to handle
+    query parameters and apply them to SQLModel queries.
+
+    The FSP pipeline is split into focused engine classes:
+    - FilterEngine: Strategy-pattern filter operator dispatch and application
+    - SortEngine: Column resolution and sort direction
+    - PaginationEngine: Pagination, counting, and response building
+      (with optional PostgreSQL window function optimization)
     """
 
     def __init__(
@@ -197,6 +201,7 @@ class FSPManager:
         sorting: Annotated[Optional[SortingQuery], Depends(_parse_sort)],
         pagination: Annotated[PaginationQuery, Depends(_parse_pagination)],
         strict_mode: bool = False,
+        use_window_function: Optional[bool] = None,
     ):
         """
         Initialize FSPManager.
@@ -207,17 +212,44 @@ class FSPManager:
             sorting: Sorting configuration
             pagination: Pagination configuration
             strict_mode: If True, raise errors for unknown fields instead of silently skipping
+            use_window_function: Force PostgreSQL window function optimization on/off.
+                None = auto-detect (enabled for PostgreSQL, disabled for others).
         """
         self.request = request
         self.filters = filters
         self.sorting = sorting
         self.pagination = pagination
-        self.strict_mode = strict_mode
-        self._type_cache: dict[int, Optional[type]] = {}
+
+        # Initialize engines
+        self._filter_engine = FilterEngine(strict_mode=strict_mode)
+        self._sort_engine = SortEngine(strict_mode=strict_mode)
+        self._pagination_engine = PaginationEngine(
+            pagination=pagination,
+            request=request,
+            use_window_function=use_window_function,
+        )
+
+    @property
+    def strict_mode(self) -> bool:
+        """Get strict mode setting."""
+        return self._filter_engine.strict_mode
+
+    @strict_mode.setter
+    def strict_mode(self, value: bool) -> None:
+        """Set strict mode on all engines."""
+        self._filter_engine.strict_mode = value
+        self._sort_engine.strict_mode = value
+
+    @property
+    def _type_cache(self) -> dict:
+        """Backward-compatible access to filter engine type cache."""
+        return self._filter_engine._type_cache
 
     def _get_column_type(self, column: ColumnElement[Any]) -> Optional[type]:
         """
         Get the Python type of a column with caching.
+
+        Delegates to FilterEngine.get_column_type().
 
         Args:
             column: SQLAlchemy column element
@@ -225,22 +257,14 @@ class FSPManager:
         Returns:
             Optional[type]: Python type of the column or None
         """
-        col_id = id(column)
-        if col_id not in self._type_cache:
-            try:
-                self._type_cache[col_id] = getattr(column.type, "python_type", None)
-            except (AttributeError, NotImplementedError):
-                # For computed fields (hybrid_property, etc.), type inference may fail
-                self._type_cache[col_id] = None
-        return self._type_cache[col_id]
+        return self._filter_engine.get_column_type(column)
 
     @staticmethod
     def _get_entity_attribute(query: Select, field: str) -> Optional[ColumnElement[Any]]:
         """
         Try to get a column-like attribute from the query's entity.
 
-        This enables filtering/sorting on computed fields like hybrid_property
-        that have SQL expressions defined.
+        Delegates to FilterEngine.get_entity_attribute().
 
         Args:
             query: SQLAlchemy Select query
@@ -249,37 +273,13 @@ class FSPManager:
         Returns:
             Optional[ColumnElement]: The SQL expression if available, None otherwise
         """
-        try:
-            # Get the entity class from the query
-            column_descriptions = query.column_descriptions
-            if not column_descriptions:
-                return None
-
-            entity = column_descriptions[0].get("entity")
-            if entity is None:
-                return None
-
-            # Get the attribute from the entity class
-            attr = getattr(entity, field, None)
-            if attr is None:
-                return None
-
-            # Check if it's directly usable as a ColumnElement (hybrid_property with expression)
-            # When accessing a hybrid_property on the class, it returns the SQL expression
-            if isinstance(attr, ColumnElement):
-                return attr
-
-            # Some expressions may need to call __clause_element__
-            if hasattr(attr, "__clause_element__"):
-                return attr.__clause_element__()
-
-            return None
-        except Exception:
-            return None
+        return FilterEngine.get_entity_attribute(query, field)
 
     def paginate(self, query: Select, session: Session) -> Any:
         """
         Execute pagination on a query.
+
+        Delegates to PaginationEngine.paginate().
 
         Args:
             query: SQLAlchemy Select query
@@ -288,15 +288,13 @@ class FSPManager:
         Returns:
             Any: Query results
         """
-        return session.exec(
-            query.offset((self.pagination.page - 1) * self.pagination.per_page).limit(
-                self.pagination.per_page
-            )
-        ).all()
+        return self._pagination_engine.paginate(query, session)
 
     async def paginate_async(self, query: Select, session: AsyncSession) -> Any:
         """
         Execute pagination on a query asynchronously.
+
+        Delegates to PaginationEngine.paginate_async().
 
         Args:
             query: SQLAlchemy Select query
@@ -305,12 +303,7 @@ class FSPManager:
         Returns:
             Any: Query results
         """
-        result = await session.exec(
-            query.offset((self.pagination.page - 1) * self.pagination.per_page).limit(
-                self.pagination.per_page
-            )
-        )
-        return result.all()
+        return await self._pagination_engine.paginate_async(query, session)
 
     def generate_response(self, query: Select, session: Session) -> PaginatedResponse[Any]:
         """
@@ -327,9 +320,13 @@ class FSPManager:
         query = self._apply_filters(query, columns_map, self.filters)
         query = self._apply_sort(query, columns_map, self.sorting)
 
-        total_items = self._count_total(query, session)
-        data_page = self.paginate(query, session)
-        return self._generate_response(total_items=total_items, data_page=data_page)
+        data_page, total_items = self._pagination_engine.paginate_with_count(query, session)
+        return self._pagination_engine.build_response(
+            total_items=total_items,
+            data_page=data_page,
+            filters=self.filters,
+            sorting=self.sorting,
+        )
 
     async def generate_response_async(
         self, query: Select, session: AsyncSession
@@ -348,66 +345,22 @@ class FSPManager:
         query = self._apply_filters(query, columns_map, self.filters)
         query = self._apply_sort(query, columns_map, self.sorting)
 
-        total_items = await self._count_total_async(query, session)
-        data_page = await self.paginate_async(query, session)
-        return self._generate_response(total_items=total_items, data_page=data_page)
-
-    def _generate_response(self, total_items: int, data_page: Any) -> PaginatedResponse[Any]:
-        """
-        Generate the final paginated response object.
-
-        Args:
-            total_items: Total number of items matching filters
-            data_page: Current page of data
-
-        Returns:
-            PaginatedResponse: Final response object
-        """
-        per_page = self.pagination.per_page
-        current_page = self.pagination.page
-        total_pages = max(1, ceil(total_items / per_page)) if total_items is not None else 1
-
-        # Build links based on current URL, replacing/adding page and per_page parameters
-        url = self.request.url
-        first_url = str(url.include_query_params(page=1, per_page=per_page))
-        last_url = str(url.include_query_params(page=total_pages, per_page=per_page))
-        next_url = (
-            str(url.include_query_params(page=current_page + 1, per_page=per_page))
-            if current_page < total_pages
-            else None
+        data_page, total_items = await self._pagination_engine.paginate_with_count_async(
+            query, session
         )
-        prev_url = (
-            str(url.include_query_params(page=current_page - 1, per_page=per_page))
-            if current_page > 1
-            else None
-        )
-        self_url = str(url.include_query_params(page=current_page, per_page=per_page))
-
-        return PaginatedResponse(
-            data=data_page,
-            meta=Meta(
-                pagination=Pagination(
-                    total_items=total_items,
-                    per_page=per_page,
-                    current_page=current_page,
-                    total_pages=total_pages,
-                ),
-                filters=self.filters,
-                sort=self.sorting,
-            ),
-            links=Links(
-                self=self_url,
-                first=first_url,
-                last=last_url,
-                next=next_url,
-                prev=prev_url,
-            ),
+        return self._pagination_engine.build_response(
+            total_items=total_items,
+            data_page=data_page,
+            filters=self.filters,
+            sorting=self.sorting,
         )
 
     @staticmethod
     def _coerce_value(column: ColumnElement[Any], raw: str, pytype: Optional[type] = None) -> Any:
         """
         Coerce raw string value to column's Python type.
+
+        Delegates to filters._coerce_value().
 
         Args:
             column: SQLAlchemy column element
@@ -417,52 +370,14 @@ class FSPManager:
         Returns:
             Any: Coerced value
         """
-        # Try to coerce raw (str) to the column's python type for proper comparisons
-        if pytype is None:
-            try:
-                pytype = getattr(column.type, "python_type", None)
-            except Exception:
-                pytype = None
-        if pytype is None or isinstance(raw, pytype):
-            return raw
-        # Handle booleans represented as strings
-        if pytype is bool:
-            val = raw.strip().lower()
-            if val in {"true", "1", "t", "yes", "y"}:
-                return True
-            if val in {"false", "0", "f", "no", "n"}:
-                return False
-        # Handle integers represented as strings
-        if pytype is int:
-            try:
-                return int(raw)
-            except ValueError:
-                # Handle common cases like "1.0"
-                try:
-                    return int(float(raw))
-                except ValueError:
-                    return raw
-        # Handle dates represented as strings - optimized with fast path for ISO 8601
-        if pytype is datetime:
-            try:
-                # Fast path for ISO 8601 format (most common)
-                return datetime.fromisoformat(raw)
-            except (ValueError, AttributeError):
-                # Fallback to flexible dateutil parser for other formats
-                try:
-                    return parse(raw)
-                except ValueError:
-                    return raw
-        # Generic cast with fallback
-        try:
-            return pytype(raw)
-        except Exception:
-            return raw
+        return _coerce_value(column, raw, pytype)
 
     @staticmethod
     def _split_values(raw: str) -> List[str]:
         """
         Split comma-separated values.
+
+        Delegates to filters._split_values().
 
         Args:
             raw: Raw string of comma-separated values
@@ -470,12 +385,14 @@ class FSPManager:
         Returns:
             List[str]: List of stripped values
         """
-        return [item.strip() for item in raw.split(",")]
+        return _split_values(raw)
 
     @staticmethod
     def _ilike_supported(col: ColumnElement[Any]) -> bool:
         """
         Check if ILIKE is supported for this column.
+
+        Delegates to filters._ilike_supported().
 
         Args:
             col: SQLAlchemy column element
@@ -483,14 +400,16 @@ class FSPManager:
         Returns:
             bool: True if ILIKE is supported
         """
-        return hasattr(col, "ilike")
+        return _ilike_supported(col)
 
     @staticmethod
     def _build_filter_condition(
         column: ColumnElement[Any], f: Filter, pytype: Optional[type] = None
     ) -> Optional[Any]:
         """
-        Build a filter condition for a query.
+        Build a filter condition for a query using strategy pattern dispatch.
+
+        Delegates to FilterEngine.build_filter_condition().
 
         Args:
             column: Column to apply filter to
@@ -500,82 +419,7 @@ class FSPManager:
         Returns:
             Optional[Any]: SQLAlchemy condition or None if invalid
         """
-        op = f.operator  # type: FilterOperator
-        raw_value = f.value  # type: str
-
-        # Build conditions based on operator
-        if op == FilterOperator.EQ:
-            return column == FSPManager._coerce_value(column, raw_value, pytype)
-        elif op == FilterOperator.NE:
-            return column != FSPManager._coerce_value(column, raw_value, pytype)
-        elif op == FilterOperator.GT:
-            return column > FSPManager._coerce_value(column, raw_value, pytype)
-        elif op == FilterOperator.GTE:
-            return column >= FSPManager._coerce_value(column, raw_value, pytype)
-        elif op == FilterOperator.LT:
-            return column < FSPManager._coerce_value(column, raw_value, pytype)
-        elif op == FilterOperator.LTE:
-            return column <= FSPManager._coerce_value(column, raw_value, pytype)
-        elif op == FilterOperator.LIKE:
-            return column.like(raw_value)
-        elif op == FilterOperator.NOT_LIKE:
-            return not_(column.like(raw_value))
-        elif op == FilterOperator.ILIKE:
-            pattern = raw_value
-            if FSPManager._ilike_supported(column):
-                return column.ilike(pattern)
-            else:
-                return func.lower(column).like(pattern.lower())
-        elif op == FilterOperator.NOT_ILIKE:
-            pattern = raw_value
-            if FSPManager._ilike_supported(column):
-                return not_(column.ilike(pattern))
-            else:
-                return not_(func.lower(column).like(pattern.lower()))
-        elif op == FilterOperator.IN:
-            vals = [
-                FSPManager._coerce_value(column, v, pytype)
-                for v in FSPManager._split_values(raw_value)
-            ]
-            return column.in_(vals)
-        elif op == FilterOperator.NOT_IN:
-            vals = [
-                FSPManager._coerce_value(column, v, pytype)
-                for v in FSPManager._split_values(raw_value)
-            ]
-            return not_(column.in_(vals))
-        elif op == FilterOperator.BETWEEN:
-            vals = FSPManager._split_values(raw_value)
-            if len(vals) == 2:
-                low = FSPManager._coerce_value(column, vals[0], pytype)
-                high = FSPManager._coerce_value(column, vals[1], pytype)
-                return column.between(low, high)
-            # Ignore malformed between
-            return None
-        elif op == FilterOperator.IS_NULL:
-            return column.is_(None)
-        elif op == FilterOperator.IS_NOT_NULL:
-            return column.is_not(None)
-        elif op == FilterOperator.STARTS_WITH:
-            pattern = f"{raw_value}%"
-            if FSPManager._ilike_supported(column):
-                return column.ilike(pattern)
-            else:
-                return func.lower(column).like(pattern.lower())
-        elif op == FilterOperator.ENDS_WITH:
-            pattern = f"%{raw_value}"
-            if FSPManager._ilike_supported(column):
-                return column.ilike(pattern)
-            else:
-                return func.lower(column).like(pattern.lower())
-        elif op == FilterOperator.CONTAINS:
-            pattern = f"%{raw_value}%"
-            if FSPManager._ilike_supported(column):
-                return column.ilike(pattern)
-            else:
-                return func.lower(column).like(pattern.lower())
-        # Unknown operator
-        return None
+        return FilterEngine.build_filter_condition(column, f, pytype)
 
     @staticmethod
     def _count_total(query: Select, session: Session) -> int:
@@ -589,9 +433,7 @@ class FSPManager:
         Returns:
             int: Total count of items
         """
-        # Count the total rows of the given query (with filters/sort applied) ignoring pagination
-        count_query = select(func.count()).select_from(query.subquery())
-        return session.exec(count_query).one()
+        return PaginationEngine._count_total_static(query, session)
 
     @staticmethod
     async def _count_total_async(query: Select, session: AsyncSession) -> int:
@@ -605,9 +447,7 @@ class FSPManager:
         Returns:
             int: Total count of items
         """
-        count_query = select(func.count()).select_from(query.subquery())
-        result = await session.exec(count_query)
-        return result.one()
+        return await PaginationEngine._count_total_async_static(query, session)
 
     def _apply_filters(
         self,
@@ -617,6 +457,8 @@ class FSPManager:
     ) -> Select:
         """
         Apply filters to a query.
+
+        Delegates to FilterEngine.apply_filters().
 
         Args:
             query: Base SQLAlchemy Select query
@@ -629,39 +471,7 @@ class FSPManager:
         Raises:
             HTTPException: If strict_mode is True and unknown field is encountered
         """
-        if not filters:
-            return query
-
-        conditions = []
-        for f in filters:
-            # filter of `filters` has been validated in the `_parse_filters`
-            column = columns_map.get(f.field)
-
-            # Fall back to computed fields (hybrid_property, etc.) if not in columns_map
-            if column is None:
-                column = FSPManager._get_entity_attribute(query, f.field)
-
-            if column is None:
-                if self.strict_mode:
-                    available = ", ".join(sorted(columns_map.keys()))
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Unknown field '{f.field}'. Available fields: {available}",
-                    )
-                # Skip unknown fields silently in non-strict mode
-                continue
-
-            # Get column type from cache for better performance
-            pytype = self._get_column_type(column)
-            condition = FSPManager._build_filter_condition(column, f, pytype)
-            if condition is not None:
-                conditions.append(condition)
-
-        # Apply all conditions in a single where() call for better SQL generation
-        if conditions:
-            query = query.where(*conditions)
-
-        return query
+        return self._filter_engine.apply_filters(query, columns_map, filters)
 
     def _apply_sort(
         self,
@@ -671,6 +481,8 @@ class FSPManager:
     ) -> Select:
         """
         Apply sorting to a query.
+
+        Delegates to SortEngine.apply_sort().
 
         Args:
             query: Base SQLAlchemy Select query
@@ -683,29 +495,7 @@ class FSPManager:
         Raises:
             HTTPException: If strict_mode is True and unknown sort field is encountered
         """
-        if sorting and sorting.sort_by:
-            column = columns_map.get(sorting.sort_by)
-
-            # Fall back to computed fields (hybrid_property, etc.) if not in columns_map
-            if column is None:
-                column = FSPManager._get_entity_attribute(query, sorting.sort_by)
-
-            if column is None:
-                if self.strict_mode:
-                    available = ", ".join(sorted(columns_map.keys()))
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=(
-                            f"Unknown sort field '{sorting.sort_by}'. Available fields: {available}"
-                        ),
-                    )
-                # Unknown sort column; skip sorting in non-strict mode
-                return query
-
-            query = query.order_by(
-                column.desc() if sorting.order == SortingOrder.DESC else column.asc()
-            )
-        return query
+        return self._sort_engine.apply_sort(query, columns_map, sorting)
 
     def apply_config(self, config: FSPConfig) -> "FSPManager":
         """
