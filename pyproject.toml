@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fastapi-fsp"
-version = "0.2.2"
+version = "0.2.3"
 description = "Filter, Sort, and Paginate (FSP) utilities for FastAPI + SQLModel"
 readme = "README.md"
 requires-python = ">=3.12"
