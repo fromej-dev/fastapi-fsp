@@ -172,10 +172,7 @@ class PaginationEngine:
         if len(rows[0]) == 2:
             data = [row[0] for row in rows]
         else:
-            data = [
-                {k: v for k, v in row._mapping.items() if k != "_total_count"}
-                for row in rows
-            ]
+            data = [{k: v for k, v in row._mapping.items() if k != "_total_count"} for row in rows]
         return data, total
 
     # --- Async methods ---
@@ -268,10 +265,7 @@ class PaginationEngine:
         if len(rows[0]) == 2:
             data = [row[0] for row in rows]
         else:
-            data = [
-                {k: v for k, v in row._mapping.items() if k != "_total_count"}
-                for row in rows
-            ]
+            data = [{k: v for k, v in row._mapping.items() if k != "_total_count"} for row in rows]
         return data, total
 
     # --- Response building ---
