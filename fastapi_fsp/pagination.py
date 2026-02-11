@@ -114,7 +114,9 @@ class PaginationEngine:
     @staticmethod
     def _count_total_static(query: Select, session: Session) -> int:
         """Static count method for backward compatibility with FSPManager."""
-        count_query = query.with_only_columns(func.count()).order_by(None)
+        count_query = query.with_only_columns(func.count(), maintain_column_froms=True).order_by(
+            None
+        )
         return session.exec(count_query).one()
 
     def paginate_with_count(self, query: Select, session: Session) -> Tuple[Any, int]:
@@ -157,8 +159,7 @@ class PaginationEngine:
         """
         total_count_col = over(func.count()).label("_total_count")
         window_query = (
-            query
-            .add_columns(total_count_col)
+            query.add_columns(total_count_col)
             .offset((self.pagination.page - 1) * self.pagination.per_page)
             .limit(self.pagination.per_page)
         )
@@ -211,7 +212,9 @@ class PaginationEngine:
     @staticmethod
     async def _count_total_async_static(query: Select, session: AsyncSession) -> int:
         """Static async count method for backward compatibility with FSPManager."""
-        count_query = query.with_only_columns(func.count()).order_by(None)
+        count_query = query.with_only_columns(func.count(), maintain_column_froms=True).order_by(
+            None
+        )
         result = await session.exec(count_query)
         return result.one()
 
@@ -250,8 +253,7 @@ class PaginationEngine:
         """
         total_count_col = over(func.count()).label("_total_count")
         window_query = (
-            query
-            .add_columns(total_count_col)
+            query.add_columns(total_count_col)
             .offset((self.pagination.page - 1) * self.pagination.per_page)
             .limit(self.pagination.per_page)
         )
