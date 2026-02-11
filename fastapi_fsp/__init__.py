@@ -16,7 +16,7 @@ from .models import (  # noqa: F401
     SortingOrder,
     SortingQuery,
 )
-from .pagination import PaginationEngine  # noqa: F401
+from .pagination import PaginationEngine, Row  # noqa: F401
 from .presets import CommonFilters  # noqa: F401
 from .sorting import SortEngine  # noqa: F401
 
@@ -27,6 +27,7 @@ __all__ = [
     "FilterEngine",
     "SortEngine",
     "PaginationEngine",
+    "Row",
     # Strategy registry
     "FILTER_STRATEGIES",
     # Builder

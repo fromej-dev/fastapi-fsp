@@ -1,6 +1,5 @@
 """Pagination engine with optional PostgreSQL window function optimization."""
 
-from collections import namedtuple
 from math import ceil
 from typing import Any, Optional, Tuple
 
@@ -16,6 +15,24 @@ from fastapi_fsp.models import (
     Pagination,
     PaginationQuery,
 )
+
+
+class Row(dict):
+    """A dict subclass with attribute access for query result rows.
+
+    Behaves like a dict (so Pydantic/FastAPI can serialize it) while also
+    supporting ``row.column_name`` attribute access for convenience.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+    def __repr__(self) -> str:
+        items = ", ".join(f"{k}={v!r}" for k, v in self.items())
+        return f"Row({items})"
 
 
 def _detect_postgresql(session: Any) -> bool:
@@ -173,9 +190,10 @@ class PaginationEngine:
         if len(rows[0]) == 2:
             data = [row[0] for row in rows]
         else:
-            col_names = [k for k in rows[0]._mapping.keys() if k != "_total_count"]
-            Row = namedtuple("Row", col_names)
-            data = [Row(*(row._mapping[k] for k in col_names)) for row in rows]
+            data = [
+                Row({k: v for k, v in row._mapping.items() if k != "_total_count"})
+                for row in rows
+            ]
         return data, total
 
     # --- Async methods ---
@@ -268,9 +286,10 @@ class PaginationEngine:
         if len(rows[0]) == 2:
             data = [row[0] for row in rows]
         else:
-            col_names = [k for k in rows[0]._mapping.keys() if k != "_total_count"]
-            Row = namedtuple("Row", col_names)
-            data = [Row(*(row._mapping[k] for k in col_names)) for row in rows]
+            data = [
+                Row({k: v for k, v in row._mapping.items() if k != "_total_count"})
+                for row in rows
+            ]
         return data, total
 
     # --- Response building ---
