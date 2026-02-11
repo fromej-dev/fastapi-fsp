@@ -5,7 +5,7 @@ from typing import Any, Optional, Tuple
 
 from fastapi import Request
 from sqlalchemy import Select, func, over
-from sqlmodel import Session, select
+from sqlmodel import Session
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from fastapi_fsp.models import (
@@ -114,7 +114,7 @@ class PaginationEngine:
     @staticmethod
     def _count_total_static(query: Select, session: Session) -> int:
         """Static count method for backward compatibility with FSPManager."""
-        count_query = select(func.count()).select_from(query.subquery())
+        count_query = query.with_only_columns(func.count()).order_by(None)
         return session.exec(count_query).one()
 
     def paginate_with_count(self, query: Select, session: Session) -> Tuple[Any, int]:
@@ -156,9 +156,9 @@ class PaginationEngine:
             Tuple[Any, int]: (page_data, total_count)
         """
         total_count_col = over(func.count()).label("_total_count")
-        subq = query.subquery()
         window_query = (
-            select(subq, total_count_col)
+            query
+            .add_columns(total_count_col)
             .offset((self.pagination.page - 1) * self.pagination.per_page)
             .limit(self.pagination.per_page)
         )
@@ -211,7 +211,7 @@ class PaginationEngine:
     @staticmethod
     async def _count_total_async_static(query: Select, session: AsyncSession) -> int:
         """Static async count method for backward compatibility with FSPManager."""
-        count_query = select(func.count()).select_from(query.subquery())
+        count_query = query.with_only_columns(func.count()).order_by(None)
         result = await session.exec(count_query)
         return result.one()
 
@@ -249,9 +249,9 @@ class PaginationEngine:
             Tuple[Any, int]: (page_data, total_count)
         """
         total_count_col = over(func.count()).label("_total_count")
-        subq = query.subquery()
         window_query = (
-            select(subq, total_count_col)
+            query
+            .add_columns(total_count_col)
             .offset((self.pagination.page - 1) * self.pagination.per_page)
             .limit(self.pagination.per_page)
         )
