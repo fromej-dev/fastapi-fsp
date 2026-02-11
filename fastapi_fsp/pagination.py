@@ -1,5 +1,6 @@
 """Pagination engine with optional PostgreSQL window function optimization."""
 
+from collections import namedtuple
 from math import ceil
 from typing import Any, Optional, Tuple
 
@@ -172,7 +173,9 @@ class PaginationEngine:
         if len(rows[0]) == 2:
             data = [row[0] for row in rows]
         else:
-            data = [{k: v for k, v in row._mapping.items() if k != "_total_count"} for row in rows]
+            col_names = [k for k in rows[0]._mapping.keys() if k != "_total_count"]
+            Row = namedtuple("Row", col_names)
+            data = [Row(*(row._mapping[k] for k in col_names)) for row in rows]
         return data, total
 
     # --- Async methods ---
@@ -265,7 +268,9 @@ class PaginationEngine:
         if len(rows[0]) == 2:
             data = [row[0] for row in rows]
         else:
-            data = [{k: v for k, v in row._mapping.items() if k != "_total_count"} for row in rows]
+            col_names = [k for k in rows[0]._mapping.keys() if k != "_total_count"]
+            Row = namedtuple("Row", col_names)
+            data = [Row(*(row._mapping[k] for k in col_names)) for row in rows]
         return data, total
 
     # --- Response building ---
