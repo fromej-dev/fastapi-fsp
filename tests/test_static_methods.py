@@ -326,8 +326,7 @@ class TestApplyFilters:
     def fsp_manager(self):
         """Create a mock FSPManager."""
         request = Mock()
-        request.url = Mock()
-        request.url.include_query_params = Mock(return_value="http://example.com")
+        request.url = "http://example.com/items"
         pagination = PaginationQuery(page=1, per_page=20)
         return FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
 
@@ -369,8 +368,7 @@ class TestApplyFilters:
         from fastapi import HTTPException
 
         request = Mock()
-        request.url = Mock()
-        request.url.include_query_params = Mock(return_value="http://example.com")
+        request.url = "http://example.com/items"
         pagination = PaginationQuery(page=1, per_page=20)
 
         fsp = FSPManager(

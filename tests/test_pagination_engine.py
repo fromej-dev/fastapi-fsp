@@ -51,8 +51,7 @@ def seeded_session(engine):
 @pytest.fixture
 def mock_request():
     request = Mock()
-    request.url = Mock()
-    request.url.include_query_params = Mock(return_value="http://example.com?page=1&per_page=10")
+    request.url = "http://example.com/items"
     return request
 
 

@@ -122,8 +122,7 @@ def test_column_type_caching():
 
         # Create FSPManager instance
         request = Mock()
-        request.url = Mock()
-        request.url.include_query_params = Mock(return_value="http://example.com")
+        request.url = "http://example.com/items"
         pagination = PaginationQuery(page=1, per_page=20)
         fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
 
@@ -215,8 +214,7 @@ def test_batch_filter_application():
 
         # Create FSPManager with multiple filters
         request = Mock()
-        request.url = Mock()
-        request.url.include_query_params = Mock(return_value="http://example.com")
+        request.url = "http://example.com/items"
         pagination = PaginationQuery(page=1, per_page=20)
 
         filters = [
@@ -314,8 +312,7 @@ def test_filter_condition_with_cached_type():
 
         # Create FSPManager instance
         request = Mock()
-        request.url = Mock()
-        request.url.include_query_params = Mock(return_value="http://example.com")
+        request.url = "http://example.com/items"
         pagination = PaginationQuery(page=1, per_page=20)
         fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
 

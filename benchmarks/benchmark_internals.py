@@ -174,8 +174,7 @@ def benchmark_apply_filters():
 
         # Create mock request for FSPManager
         request = Mock()
-        request.url = Mock()
-        request.url.include_query_params = Mock(return_value="http://example.com")
+        request.url = "http://example.com/items"
         pagination = PaginationQuery(page=1, per_page=20)
 
         filters_1 = [Filter(field="age", operator=FilterOperator.GTE, value="30")]
@@ -221,8 +220,7 @@ def benchmark_apply_sort():
 
         # Create mock request for FSPManager
         request = Mock()
-        request.url = Mock()
-        request.url.include_query_params = Mock(return_value="http://example.com")
+        request.url = "http://example.com/items"
         pagination = PaginationQuery(page=1, per_page=20)
 
         from fastapi_fsp.models import SortingOrder
@@ -300,8 +298,7 @@ def benchmark_pagination():
 
             # Create mock request and FSPManager
             request = Mock()
-            request.url = Mock()
-            request.url.include_query_params = Mock(return_value="http://example.com")
+            request.url = "http://example.com/items"
 
             pagination = PaginationQuery(page=1, per_page=20)
             fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
@@ -344,8 +341,7 @@ def benchmark_generate_response():
 
             # Create mock request
             request = Mock()
-            request.url = Mock()
-            request.url.include_query_params = Mock(return_value="http://example.com")
+            request.url = "http://example.com/items"
 
             # Simple pagination
             pagination = PaginationQuery(page=1, per_page=20)

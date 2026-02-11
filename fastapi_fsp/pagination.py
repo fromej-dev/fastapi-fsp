@@ -1,7 +1,8 @@
 """Pagination engine with optional PostgreSQL window function optimization."""
 
 from math import ceil
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
+from urllib.parse import urlencode
 
 from fastapi import Request
 from sqlalchemy import Select, func, over
@@ -9,11 +10,13 @@ from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from fastapi_fsp.models import (
+    Filter,
     Links,
     Meta,
     PaginatedResponse,
     Pagination,
     PaginationQuery,
+    SortingQuery,
 )
 
 
@@ -270,6 +273,51 @@ class PaginationEngine:
 
     # --- Response building ---
 
+    def _build_link_url(
+        self,
+        page: int,
+        per_page: int,
+        filters: Optional[List[Filter]] = None,
+        sorting: Optional[SortingQuery] = None,
+    ) -> str:
+        """
+        Build a pagination link URL from known parameters only.
+
+        Constructs the URL from the request path and only the parameters
+        managed by FSP (pagination, filters, sorting), without carrying
+        over unrelated query parameters from the original request.
+
+        Args:
+            page: Target page number
+            per_page: Items per page
+            filters: Active filters to include in URL
+            sorting: Active sorting to include in URL
+
+        Returns:
+            str: Complete URL with only FSP-managed query parameters
+        """
+        params: list[tuple[str, str]] = []
+
+        # Add filter params (indexed format)
+        if filters:
+            for i, f in enumerate(filters):
+                params.append((f"filters[{i}][field]", f.field))
+                params.append((f"filters[{i}][operator]", f.operator.value))
+                params.append((f"filters[{i}][value]", f.value))
+
+        # Add sort params
+        if sorting:
+            params.append(("sort_by", sorting.sort_by))
+            params.append(("order", sorting.order.value))
+
+        # Add pagination params
+        params.append(("page", str(page)))
+        params.append(("per_page", str(per_page)))
+
+        base_url = str(self.request.url).split("?")[0]
+        query = urlencode(params)
+        return f"{base_url}?{query}"
+
     def build_response(
         self,
         total_items: int,
@@ -293,20 +341,19 @@ class PaginationEngine:
         current_page = self.pagination.page
         total_pages = max(1, ceil(total_items / per_page)) if total_items is not None else 1
 
-        url = self.request.url
-        first_url = str(url.include_query_params(page=1, per_page=per_page))
-        last_url = str(url.include_query_params(page=total_pages, per_page=per_page))
+        self_url = self._build_link_url(current_page, per_page, filters, sorting)
+        first_url = self._build_link_url(1, per_page, filters, sorting)
+        last_url = self._build_link_url(total_pages, per_page, filters, sorting)
         next_url = (
-            str(url.include_query_params(page=current_page + 1, per_page=per_page))
+            self._build_link_url(current_page + 1, per_page, filters, sorting)
             if current_page < total_pages
             else None
         )
         prev_url = (
-            str(url.include_query_params(page=current_page - 1, per_page=per_page))
+            self._build_link_url(current_page - 1, per_page, filters, sorting)
             if current_page > 1
             else None
         )
-        self_url = str(url.include_query_params(page=current_page, per_page=per_page))
 
         return PaginatedResponse(
             data=data_page,
