@@ -187,8 +187,7 @@ def _parse_search(
         )
 
     filters = [
-        Filter(field=field, operator=FilterOperator.CONTAINS, value=search)
-        for field in fields
+        Filter(field=field, operator=FilterOperator.CONTAINS, value=search) for field in fields
     ]
     return [OrFilterGroup(filters=filters)]
 

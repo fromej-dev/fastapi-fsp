@@ -80,8 +80,7 @@ class TestSearchQueryParams:
         seed(session)
         # Search for "secret" in secret_name, but also filter age > 15
         r = client.get(
-            "/heroes/?search=secret&search_fields=secret_name"
-            "&field=age&operator=gt&value=15"
+            "/heroes/?search=secret&search_fields=secret_name&field=age&operator=gt&value=15"
         )
         assert r.status_code == 200
         data = r.json()["data"]
@@ -102,17 +101,13 @@ class TestSearchQueryParams:
     def test_search_with_sorting(self, session: Session, client: TestClient):
         """Search results can be sorted."""
         seed(session)
-        r = client.get(
-            "/heroes/?search=secret&search_fields=secret_name&sort_by=name&order=asc"
-        )
+        r = client.get("/heroes/?search=secret&search_fields=secret_name&sort_by=name&order=asc")
         assert r.status_code == 200
         data = r.json()["data"]
         names = [h["name"] for h in data]
         assert names == ["ALPHA", "beta"]
 
-    def test_search_without_search_fields_returns_400(
-        self, session: Session, client: TestClient
-    ):
+    def test_search_without_search_fields_returns_400(self, session: Session, client: TestClient):
         """Search without search_fields returns 400."""
         seed(session)
         r = client.get("/heroes/?search=test")
@@ -148,9 +143,7 @@ class TestSearchQueryParams:
             assert f["operator"] == "contains"
             assert f["value"] == "dead"
 
-    def test_search_across_name_and_secret_name(
-        self, session: Session, client: TestClient
-    ):
+    def test_search_across_name_and_secret_name(self, session: Session, client: TestClient):
         """Search matches across different columns for different rows."""
         seed(session)
         # "dive" matches secret_name of Deadpond ("Dive Wilson")
@@ -224,8 +217,10 @@ class TestFilterBuilderOrGroup:
         """Build an OR group from filter builder."""
         group = (
             FilterBuilder()
-            .where("name").contains("john")
-            .where("email").contains("john")
+            .where("name")
+            .contains("john")
+            .where("email")
+            .contains("john")
             .build_or_group()
         )
         assert group is not None
@@ -249,9 +244,12 @@ class TestFilterBuilderOrGroup:
         """OR group with mixed operators."""
         group = (
             FilterBuilder()
-            .where("name").contains("test")
-            .where("age").eq(25)
-            .where("city").starts_with("new")
+            .where("name")
+            .contains("test")
+            .where("age")
+            .eq(25)
+            .where("city")
+            .starts_with("new")
             .build_or_group()
         )
         assert group is not None
@@ -262,11 +260,7 @@ class TestFilterBuilderOrGroup:
 
     def test_build_vs_build_or_group(self):
         """build() and build_or_group() use same filters differently."""
-        builder = (
-            FilterBuilder()
-            .where("name").contains("test")
-            .where("email").contains("test")
-        )
+        builder = FilterBuilder().where("name").contains("test").where("email").contains("test")
         # build() returns List[Filter] for AND logic
         and_filters = builder.build()
         assert and_filters is not None
@@ -288,9 +282,7 @@ class TestMultiFieldSearch:
 
     def test_basic_multi_field_search(self):
         """Basic multi-field search creates OR group."""
-        groups = CommonFilters.multi_field_search(
-            fields=["name", "email"], term="john"
-        )
+        groups = CommonFilters.multi_field_search(fields=["name", "email"], term="john")
         assert len(groups) == 1
         group = groups[0]
         assert isinstance(group, OrFilterGroup)
@@ -317,9 +309,7 @@ class TestMultiFieldSearch:
     def test_multi_field_search_invalid_match_type(self):
         """Invalid match_type raises ValueError."""
         with pytest.raises(ValueError, match="Invalid match_type"):
-            CommonFilters.multi_field_search(
-                fields=["name"], term="test", match_type="invalid"
-            )
+            CommonFilters.multi_field_search(fields=["name"], term="test", match_type="invalid")
 
     def test_multi_field_search_empty_fields(self):
         """Empty fields list raises ValueError."""
