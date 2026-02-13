@@ -10,6 +10,7 @@ from .models import (  # noqa: F401
     FilterOperator,
     Links,
     Meta,
+    OrFilterGroup,
     PaginatedResponse,
     Pagination,
     PaginationQuery,
@@ -40,6 +41,7 @@ __all__ = [
     # Models
     "Filter",
     "FilterOperator",
+    "OrFilterGroup",
     "SortingOrder",
     "SortingQuery",
     "PaginationQuery",

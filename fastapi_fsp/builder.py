@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import List, Optional, Union
 
-from fastapi_fsp.models import Filter, FilterOperator
+from fastapi_fsp.models import Filter, FilterOperator, OrFilterGroup
 
 
 class FieldBuilder:
@@ -323,12 +323,36 @@ class FilterBuilder:
 
     def build(self) -> Optional[List[Filter]]:
         """
-        Build and return the list of filters.
+        Build and return the list of filters (AND logic).
 
         Returns:
             Optional[List[Filter]]: List of filters, or None if empty
         """
         return self._filters if self._filters else None
+
+    def build_or_group(self) -> Optional[OrFilterGroup]:
+        """
+        Build the filters as an OR filter group.
+
+        All filters added via where() are combined with OR logic instead of AND.
+        Useful for building search-across-columns conditions.
+
+        Returns:
+            Optional[OrFilterGroup]: OR filter group, or None if empty
+
+        Example:
+            or_group = (
+                FilterBuilder()
+                .where("name").contains("john")
+                .where("email").contains("john")
+                .build_or_group()
+            )
+            # Use with FSPManager:
+            fsp.with_or_filters([or_group])
+        """
+        if not self._filters:
+            return None
+        return OrFilterGroup(filters=self._filters)
 
     def __len__(self) -> int:
         """Return the number of filters."""

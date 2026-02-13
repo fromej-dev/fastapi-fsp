@@ -13,6 +13,7 @@ from fastapi_fsp.filters import FilterEngine, _coerce_value, _ilike_supported, _
 from fastapi_fsp.models import (
     Filter,
     FilterOperator,
+    OrFilterGroup,
     PaginatedResponse,
     PaginationQuery,
     SortingOrder,
@@ -144,6 +145,53 @@ def _parse_filters(
     return None
 
 
+def _parse_search(
+    request: Request,
+) -> Optional[List[OrFilterGroup]]:
+    """
+    Parse search parameters from query parameters.
+
+    Supports: ?search=term&search_fields=name,email,city
+
+    This creates an OR filter group that matches the search term against
+    each specified field using case-insensitive CONTAINS (ILIKE %term%).
+
+    Args:
+        request: FastAPI Request object containing query parameters
+
+    Returns:
+        Optional[List[OrFilterGroup]]: List with one OR group, or None
+
+    Raises:
+        HTTPException: If search is provided without search_fields
+    """
+    query_params = request.query_params
+    search = query_params.get("search")
+
+    if not search:
+        return None
+
+    search_fields_raw = query_params.get("search_fields")
+    if not search_fields_raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'search_fields' is required when 'search' is provided. "
+            "Specify comma-separated field names, e.g. search_fields=name,email",
+        )
+
+    fields = [f.strip() for f in search_fields_raw.split(",") if f.strip()]
+    if not fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'search_fields' must contain at least one field name.",
+        )
+
+    filters = [
+        Filter(field=field, operator=FilterOperator.CONTAINS, value=search) for field in fields
+    ]
+    return [OrFilterGroup(filters=filters)]
+
+
 def _parse_sort(
     sort_by: Optional[str] = Query(None, alias="sort_by"),
     order: Optional[SortingOrder] = Query(SortingOrder.ASC, alias="order"),
@@ -200,6 +248,7 @@ class FSPManager:
         filters: Annotated[Optional[List[Filter]], Depends(_parse_filters)],
         sorting: Annotated[Optional[SortingQuery], Depends(_parse_sort)],
         pagination: Annotated[PaginationQuery, Depends(_parse_pagination)],
+        or_filters: Annotated[Optional[List[OrFilterGroup]], Depends(_parse_search)],
         strict_mode: bool = False,
         use_window_function: Optional[bool] = None,
     ):
@@ -208,15 +257,17 @@ class FSPManager:
 
         Args:
             request: FastAPI Request object
-            filters: Parsed filters
+            filters: Parsed AND filters
             sorting: Sorting configuration
             pagination: Pagination configuration
+            or_filters: Parsed OR filter groups (from search params)
             strict_mode: If True, raise errors for unknown fields instead of silently skipping
             use_window_function: Force PostgreSQL window function optimization on/off.
                 None = auto-detect (enabled for PostgreSQL, disabled for others).
         """
         self.request = request
         self.filters = filters
+        self.or_filters = or_filters
         self.sorting = sorting
         self.pagination = pagination
 
@@ -318,6 +369,7 @@ class FSPManager:
         """
         columns_map = query.selected_columns
         query = self._apply_filters(query, columns_map, self.filters)
+        query = self._apply_or_filters(query, columns_map, self.or_filters)
         query = self._apply_sort(query, columns_map, self.sorting)
 
         data_page, total_items = self._pagination_engine.paginate_with_count(query, session)
@@ -325,6 +377,7 @@ class FSPManager:
             total_items=total_items,
             data_page=data_page,
             filters=self.filters,
+            or_filters=self.or_filters,
             sorting=self.sorting,
         )
 
@@ -343,6 +396,7 @@ class FSPManager:
         """
         columns_map = query.selected_columns
         query = self._apply_filters(query, columns_map, self.filters)
+        query = self._apply_or_filters(query, columns_map, self.or_filters)
         query = self._apply_sort(query, columns_map, self.sorting)
 
         data_page, total_items = await self._pagination_engine.paginate_with_count_async(
@@ -352,6 +406,7 @@ class FSPManager:
             total_items=total_items,
             data_page=data_page,
             filters=self.filters,
+            or_filters=self.or_filters,
             sorting=self.sorting,
         )
 
@@ -473,6 +528,30 @@ class FSPManager:
         """
         return self._filter_engine.apply_filters(query, columns_map, filters)
 
+    def _apply_or_filters(
+        self,
+        query: Select,
+        columns_map: ColumnCollection[str, ColumnElement[Any]],
+        or_filters: Optional[List[OrFilterGroup]],
+    ) -> Select:
+        """
+        Apply OR filter groups to a query.
+
+        Delegates to FilterEngine.apply_or_filter_groups().
+
+        Args:
+            query: Base SQLAlchemy Select query
+            columns_map: Map of column names to column elements
+            or_filters: List of OR filter groups to apply
+
+        Returns:
+            Select: Query with OR filter groups applied
+
+        Raises:
+            HTTPException: If strict_mode is True and unknown field is encountered
+        """
+        return self._filter_engine.apply_or_filter_groups(query, columns_map, or_filters)
+
     def _apply_sort(
         self,
         query: Select,
@@ -584,6 +663,23 @@ class FSPManager:
                 self.filters.extend(filters)
             else:
                 self.filters = filters
+        return self
+
+    def with_or_filters(self, or_filters: Optional[List[OrFilterGroup]]) -> "FSPManager":
+        """
+        Set or append OR filter groups.
+
+        Args:
+            or_filters: List of OR filter groups to apply
+
+        Returns:
+            FSPManager: Self for chaining
+        """
+        if or_filters:
+            if self.or_filters:
+                self.or_filters.extend(or_filters)
+            else:
+                self.or_filters = or_filters
         return self
 
     def with_sorting(self, sorting: Optional[SortingQuery]) -> "FSPManager":
