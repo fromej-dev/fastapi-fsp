@@ -277,6 +277,7 @@ class PaginationEngine:
         total_items: int,
         data_page: Any,
         filters: Any = None,
+        or_filters: Any = None,
         sorting: Any = None,
     ) -> PaginatedResponse[Any]:
         """
@@ -285,7 +286,8 @@ class PaginationEngine:
         Args:
             total_items: Total number of items matching filters
             data_page: Current page of data
-            filters: Active filters (for meta)
+            filters: Active AND filters (for meta)
+            or_filters: Active OR filter groups (for meta)
             sorting: Active sorting (for meta)
 
         Returns:
@@ -320,6 +322,7 @@ class PaginationEngine:
                     total_pages=total_pages,
                 ),
                 filters=filters,
+                or_filters=or_filters,
                 sort=sorting,
             ),
             links=Links(

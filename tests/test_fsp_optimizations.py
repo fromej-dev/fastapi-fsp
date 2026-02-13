@@ -125,7 +125,7 @@ def test_column_type_caching():
         request.url = Mock()
         request.url.include_query_params = Mock(return_value="http://example.com")
         pagination = PaginationQuery(page=1, per_page=20)
-        fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
+        fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination, or_filters=None)
 
         # Get column type (should cache it)
         pytype1 = fsp._get_column_type(age_col)
@@ -224,7 +224,7 @@ def test_batch_filter_application():
             Filter(field="active", operator=FilterOperator.EQ, value="true"),
         ]
 
-        fsp = FSPManager(request=request, filters=filters, sorting=None, pagination=pagination)
+        fsp = FSPManager(request=request, filters=filters, sorting=None, pagination=pagination, or_filters=None)
 
         # Apply filters
         filtered_query = fsp._apply_filters(query, columns, filters)
@@ -317,7 +317,7 @@ def test_filter_condition_with_cached_type():
         request.url = Mock()
         request.url.include_query_params = Mock(return_value="http://example.com")
         pagination = PaginationQuery(page=1, per_page=20)
-        fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
+        fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination, or_filters=None)
 
         # Get and cache the type
         pytype = fsp._get_column_type(age_col)

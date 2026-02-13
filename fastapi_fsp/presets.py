@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from typing import List
 
-from fastapi_fsp.models import Filter, FilterOperator
+from fastapi_fsp.models import Filter, FilterOperator, OrFilterGroup
 
 
 class CommonFilters:
@@ -265,3 +265,52 @@ class CommonFilters:
         """
         str_values = ",".join(str(v) for v in values)
         return [Filter(field=field, operator=FilterOperator.NOT_IN, value=str_values)]
+
+    @staticmethod
+    def multi_field_search(
+        fields: List[str],
+        term: str,
+        match_type: str = "contains",
+    ) -> List[OrFilterGroup]:
+        """
+        Create an OR filter group that searches across multiple fields.
+
+        This is the programmatic equivalent of the ?search=term&search_fields=f1,f2
+        query parameter. The search term is matched against each field using the
+        specified match type, and results matching ANY field are returned.
+
+        Args:
+            fields: List of field names to search across
+            term: Search term
+            match_type: Type of match - "contains", "starts_with", "ends_with"
+                (default: "contains")
+
+        Returns:
+            List[OrFilterGroup]: List with one OR filter group
+
+        Raises:
+            ValueError: If match_type is invalid or fields is empty
+
+        Example:
+            # Search for "john" across name and email columns
+            or_groups = CommonFilters.multi_field_search(
+                fields=["name", "email"],
+                term="john",
+            )
+            fsp.with_or_filters(or_groups)
+        """
+        if not fields:
+            raise ValueError("At least one field must be provided")
+
+        operator_map = {
+            "contains": FilterOperator.CONTAINS,
+            "starts_with": FilterOperator.STARTS_WITH,
+            "ends_with": FilterOperator.ENDS_WITH,
+        }
+        operator = operator_map.get(match_type)
+        if operator is None:
+            valid_types = "contains, starts_with, ends_with"
+            raise ValueError(f"Invalid match_type: {match_type}. Use: {valid_types}")
+
+        filters = [Filter(field=field, operator=operator, value=term) for field in fields]
+        return [OrFilterGroup(filters=filters)]

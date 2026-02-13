@@ -52,6 +52,24 @@ class Filter(BaseModel):
     value: str
 
 
+class OrFilterGroup(BaseModel):
+    """A group of filters combined with OR logic.
+
+    All filters in the group are OR'd together, and the resulting condition
+    is AND'd with other query conditions. This enables "search across columns"
+    use cases where a single search term should match any of several fields.
+
+    Example:
+        # Match rows where name OR email contains "john"
+        OrFilterGroup(filters=[
+            Filter(field="name", operator=FilterOperator.CONTAINS, value="john"),
+            Filter(field="email", operator=FilterOperator.CONTAINS, value="john"),
+        ])
+    """
+
+    filters: List[Filter]
+
+
 class PaginationQuery(BaseModel):
     """Pagination query model"""
 
@@ -80,6 +98,7 @@ class Meta(BaseModel):
 
     pagination: Pagination
     filters: Optional[List[Filter]] = None
+    or_filters: Optional[List[OrFilterGroup]] = None
     sort: Optional[SortingQuery] = None
 
 
