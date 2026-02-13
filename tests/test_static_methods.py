@@ -329,7 +329,10 @@ class TestApplyFilters:
         request.url = Mock()
         request.url.include_query_params = Mock(return_value="http://example.com")
         pagination = PaginationQuery(page=1, per_page=20)
-        return FSPManager(request=request, filters=None, sorting=None, pagination=pagination, or_filters=None)
+        return FSPManager(
+            request=request, filters=None, sorting=None,
+            pagination=pagination, or_filters=None,
+        )
 
     def test_apply_filters_empty(self, fsp_manager, columns):
         """Test apply_filters with no filters."""
@@ -374,7 +377,8 @@ class TestApplyFilters:
         pagination = PaginationQuery(page=1, per_page=20)
 
         fsp = FSPManager(
-            request=request, filters=None, sorting=None, pagination=pagination, or_filters=None, strict_mode=True
+            request=request, filters=None, sorting=None,
+            pagination=pagination, or_filters=None, strict_mode=True,
         )
 
         query = select(TestModel)

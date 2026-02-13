@@ -2,11 +2,11 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
-
 from fastapi_fsp.builder import FilterBuilder
 from fastapi_fsp.models import Filter, FilterOperator, OrFilterGroup
 from fastapi_fsp.presets import CommonFilters
+from sqlmodel import Session
+
 from tests.main import Hero
 
 
