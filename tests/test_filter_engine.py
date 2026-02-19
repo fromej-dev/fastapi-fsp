@@ -1,6 +1,7 @@
 """Tests for FilterEngine with strategy pattern."""
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Optional
 from unittest.mock import Mock
 
@@ -13,7 +14,14 @@ from fastapi_fsp.filters import (
     _split_values,
 )
 from fastapi_fsp.models import Filter, FilterOperator
+from sqlalchemy import Column as SAColumn
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel, create_engine, select
+
+
+class StatusEnum(StrEnum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
 
 
 class FilterTestModel(SQLModel, table=True):
@@ -27,6 +35,10 @@ class FilterTestModel(SQLModel, table=True):
     active: bool = Field(default=True)
     created_at: Optional[datetime] = Field(default=None)
     description: Optional[str] = Field(default=None)
+    status: Optional[str] = Field(
+        default=None,
+        sa_column=SAColumn(SAEnum(StatusEnum, name="statusenum"), nullable=True),
+    )
 
 
 @pytest.fixture(scope="module")
@@ -218,6 +230,22 @@ class TestFilterEngineStrategyDispatch:
         compiled = str(condition)
         assert "CAST" not in compiled.upper()
 
+    def test_contains_on_enum_column_casts_to_text(self, columns):
+        """CONTAINS on enum column should cast to text to avoid PG operator error."""
+        f = Filter(field="status", operator=FilterOperator.CONTAINS, value="act")
+        condition = FilterEngine.build_filter_condition(columns["status"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" in compiled.upper() or "VARCHAR" in compiled.upper()
+
+    def test_ilike_on_enum_column_casts_to_text(self, columns):
+        """ILIKE on enum column should cast to text."""
+        f = Filter(field="status", operator=FilterOperator.ILIKE, value="%active%")
+        condition = FilterEngine.build_filter_condition(columns["status"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" in compiled.upper() or "VARCHAR" in compiled.upper()
+
 
 class TestCustomStrategy:
     """Tests for registering custom filter strategies."""
@@ -349,3 +377,7 @@ class TestModuleFunctions:
     def test_is_string_column(self, columns):
         assert _is_string_column(columns["name"]) is True
         assert _is_string_column(columns["age"]) is False
+
+    def test_is_string_column_enum_returns_false(self, columns):
+        """Enum columns should not be treated as string for ILIKE purposes."""
+        assert _is_string_column(columns["status"]) is False

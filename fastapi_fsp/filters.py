@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dateutil.parser import parse
 from fastapi import HTTPException, status
-from sqlalchemy import ColumnCollection, ColumnElement, Select, String, cast, or_
+from sqlalchemy import ColumnCollection, ColumnElement, Enum, Select, String, cast, or_
 from sqlalchemy.sql.type_api import TypeDecorator
 from sqlmodel import not_
 
@@ -92,6 +92,10 @@ def _is_string_column(col: ColumnElement[Any]) -> bool:
         bool: True if the column is a string/text type
     """
     col_type = col.type
+    # Enum inherits from String in SQLAlchemy but PostgreSQL enums
+    # don't support ILIKE, so they must be cast to text
+    if isinstance(col_type, Enum):
+        return False
     # SQLModel AutoString and similar TypeDecorators that wrap String
     if isinstance(col_type, TypeDecorator):
         impl = col_type.impl
