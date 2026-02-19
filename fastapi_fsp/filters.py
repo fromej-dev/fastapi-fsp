@@ -5,7 +5,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dateutil.parser import parse
 from fastapi import HTTPException, status
-from sqlalchemy import ColumnCollection, ColumnElement, Select, func, or_
+from sqlalchemy import ColumnCollection, ColumnElement, Select, String, cast, or_
+from sqlalchemy.sql.type_api import TypeDecorator
 from sqlmodel import not_
 
 from fastapi_fsp.models import Filter, FilterOperator, OrFilterGroup
@@ -74,17 +75,53 @@ def _split_values(raw: str) -> List[str]:
     return [item.strip() for item in raw.split(",")]
 
 
-def _ilike_supported(col: ColumnElement[Any]) -> bool:
+def _is_string_column(col: ColumnElement[Any]) -> bool:
     """
-    Check if ILIKE is supported for this column.
+    Check if a column has a string type in the database.
+
+    Non-string columns (integer, float, datetime, etc.) need to be cast
+    to text before ILIKE/LIKE pattern matching can be applied.
+
+    Handles SQLModel's AutoString (a TypeDecorator wrapping String) which
+    raises NotImplementedError for python_type.
 
     Args:
         col: SQLAlchemy column element
 
     Returns:
-        bool: True if ILIKE is supported
+        bool: True if the column is a string/text type
     """
-    return hasattr(col, "ilike")
+    col_type = col.type
+    # SQLModel AutoString and similar TypeDecorators that wrap String
+    if isinstance(col_type, TypeDecorator):
+        impl = col_type.impl
+        # impl can be a class or instance
+        if isinstance(impl, type):
+            return issubclass(impl, String)
+        return isinstance(impl, String)
+    # Direct SQLAlchemy string types
+    if isinstance(col_type, String):
+        return True
+    # Fallback: check python_type
+    try:
+        return getattr(col_type, "python_type", None) is str
+    except (AttributeError, NotImplementedError):
+        return False
+
+
+def _as_text(col: ColumnElement[Any]) -> ColumnElement[Any]:
+    """
+    Return the column as-is if it's a string type, otherwise cast to text.
+
+    Args:
+        col: SQLAlchemy column element
+
+    Returns:
+        ColumnElement: The column, possibly cast to String
+    """
+    if _is_string_column(col):
+        return col
+    return cast(col, String)
 
 
 # --- Strategy functions for each filter operator ---
@@ -115,23 +152,19 @@ def _strategy_lte(column: ColumnElement[Any], raw: str, pytype: Optional[type]) 
 
 
 def _strategy_like(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
-    return column.like(raw)
+    return _as_text(column).like(raw)
 
 
 def _strategy_not_like(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
-    return not_(column.like(raw))
+    return not_(_as_text(column).like(raw))
 
 
 def _strategy_ilike(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
-    if _ilike_supported(column):
-        return column.ilike(raw)
-    return func.lower(column).like(raw.lower())
+    return _as_text(column).ilike(raw)
 
 
 def _strategy_not_ilike(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
-    if _ilike_supported(column):
-        return not_(column.ilike(raw))
-    return not_(func.lower(column).like(raw.lower()))
+    return not_(_as_text(column).ilike(raw))
 
 
 def _strategy_in(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
@@ -165,23 +198,17 @@ def _strategy_is_not_null(column: ColumnElement[Any], raw: str, pytype: Optional
 
 def _strategy_starts_with(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
     pattern = f"{raw}%"
-    if _ilike_supported(column):
-        return column.ilike(pattern)
-    return func.lower(column).like(pattern.lower())
+    return _as_text(column).ilike(pattern)
 
 
 def _strategy_ends_with(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
     pattern = f"%{raw}"
-    if _ilike_supported(column):
-        return column.ilike(pattern)
-    return func.lower(column).like(pattern.lower())
+    return _as_text(column).ilike(pattern)
 
 
 def _strategy_contains(column: ColumnElement[Any], raw: str, pytype: Optional[type]) -> Any:
     pattern = f"%{raw}%"
-    if _ilike_supported(column):
-        return column.ilike(pattern)
-    return func.lower(column).like(pattern.lower())
+    return _as_text(column).ilike(pattern)
 
 
 # Strategy registry: maps FilterOperator -> handler function

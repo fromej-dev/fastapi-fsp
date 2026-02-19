@@ -304,19 +304,18 @@ class TestBuildFilterCondition:
         assert condition is not None
 
 
-class TestIlikeSupported:
-    """Tests for _ilike_supported method."""
+class TestIsStringColumn:
+    """Tests for _is_string_column method."""
 
-    def test_ilike_supported_with_string_column(self, columns):
-        """Test ilike supported returns True for string column."""
-        result = FSPManager._ilike_supported(columns["name"])
+    def test_is_string_column_with_string_column(self, columns):
+        """Test returns True for string column."""
+        result = FSPManager._is_string_column(columns["name"])
         assert result is True
 
-    def test_ilike_supported_with_integer_column(self, columns):
-        """Test ilike supported for integer column."""
-        # Integer columns may or may not support ilike depending on database
-        result = FSPManager._ilike_supported(columns["age"])
-        assert isinstance(result, bool)
+    def test_is_string_column_with_integer_column(self, columns):
+        """Test returns False for integer column."""
+        result = FSPManager._is_string_column(columns["age"])
+        assert result is False
 
 
 class TestApplyFilters:

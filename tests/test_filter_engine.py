@@ -9,7 +9,7 @@ from fastapi_fsp.filters import (
     FILTER_STRATEGIES,
     FilterEngine,
     _coerce_value,
-    _ilike_supported,
+    _is_string_column,
     _split_values,
 )
 from fastapi_fsp.models import Filter, FilterOperator
@@ -170,6 +170,54 @@ class TestFilterEngineStrategyDispatch:
         condition = FilterEngine.build_filter_condition(columns["age"], f, pytype=int)
         assert condition is not None
 
+    def test_contains_on_integer_column_casts_to_text(self, columns):
+        """CONTAINS on integer column should cast to text, not fail with ILIKE on int."""
+        f = Filter(field="age", operator=FilterOperator.CONTAINS, value="3")
+        condition = FilterEngine.build_filter_condition(columns["age"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" in compiled.upper() or "VARCHAR" in compiled.upper()
+
+    def test_ilike_on_integer_column_casts_to_text(self, columns):
+        """ILIKE on integer column should cast to text, not fail."""
+        f = Filter(field="age", operator=FilterOperator.ILIKE, value="%3%")
+        condition = FilterEngine.build_filter_condition(columns["age"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" in compiled.upper() or "VARCHAR" in compiled.upper()
+
+    def test_starts_with_on_integer_column_casts_to_text(self, columns):
+        """STARTS_WITH on integer column should cast to text."""
+        f = Filter(field="age", operator=FilterOperator.STARTS_WITH, value="3")
+        condition = FilterEngine.build_filter_condition(columns["age"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" in compiled.upper() or "VARCHAR" in compiled.upper()
+
+    def test_ends_with_on_integer_column_casts_to_text(self, columns):
+        """ENDS_WITH on integer column should cast to text."""
+        f = Filter(field="age", operator=FilterOperator.ENDS_WITH, value="5")
+        condition = FilterEngine.build_filter_condition(columns["age"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" in compiled.upper() or "VARCHAR" in compiled.upper()
+
+    def test_like_on_integer_column_casts_to_text(self, columns):
+        """LIKE on integer column should cast to text."""
+        f = Filter(field="age", operator=FilterOperator.LIKE, value="%3%")
+        condition = FilterEngine.build_filter_condition(columns["age"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" in compiled.upper() or "VARCHAR" in compiled.upper()
+
+    def test_contains_on_string_column_no_cast(self, columns):
+        """CONTAINS on string column should NOT cast - use column directly."""
+        f = Filter(field="name", operator=FilterOperator.CONTAINS, value="oh")
+        condition = FilterEngine.build_filter_condition(columns["name"], f)
+        assert condition is not None
+        compiled = str(condition)
+        assert "CAST" not in compiled.upper()
+
 
 class TestCustomStrategy:
     """Tests for registering custom filter strategies."""
@@ -298,5 +346,6 @@ class TestModuleFunctions:
         assert _split_values("a,b,c") == ["a", "b", "c"]
         assert _split_values("  a  ,  b  ") == ["a", "b"]
 
-    def test_ilike_supported(self, columns):
-        assert _ilike_supported(columns["name"]) is True
+    def test_is_string_column(self, columns):
+        assert _is_string_column(columns["name"]) is True
+        assert _is_string_column(columns["age"]) is False

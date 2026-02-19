@@ -9,7 +9,7 @@ from sqlmodel import Session, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from fastapi_fsp.config import FSPConfig
-from fastapi_fsp.filters import FilterEngine, _coerce_value, _ilike_supported, _split_values
+from fastapi_fsp.filters import FilterEngine, _coerce_value, _is_string_column, _split_values
 from fastapi_fsp.models import (
     Filter,
     FilterOperator,
@@ -443,19 +443,22 @@ class FSPManager:
         return _split_values(raw)
 
     @staticmethod
-    def _ilike_supported(col: ColumnElement[Any]) -> bool:
+    def _is_string_column(col: ColumnElement[Any]) -> bool:
         """
-        Check if ILIKE is supported for this column.
+        Check if a column has a string type in the database.
 
-        Delegates to filters._ilike_supported().
+        Non-string columns (integer, float, datetime, etc.) need to be cast
+        to text before ILIKE/LIKE pattern matching can be applied.
+
+        Delegates to filters._is_string_column().
 
         Args:
             col: SQLAlchemy column element
 
         Returns:
-            bool: True if ILIKE is supported
+            bool: True if the column is a string/text type
         """
-        return _ilike_supported(col)
+        return _is_string_column(col)
 
     @staticmethod
     def _build_filter_condition(
