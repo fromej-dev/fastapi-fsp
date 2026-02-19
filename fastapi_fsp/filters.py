@@ -5,10 +5,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dateutil.parser import parse
 from fastapi import HTTPException, status
-from sqlalchemy import ColumnCollection, ColumnElement, Select, func
+from sqlalchemy import ColumnCollection, ColumnElement, Select, func, or_
 from sqlmodel import not_
 
-from fastapi_fsp.models import Filter, FilterOperator
+from fastapi_fsp.models import Filter, FilterOperator, OrFilterGroup
 
 # Type alias for filter strategy functions
 FilterStrategyFn = Callable[[ColumnElement[Any], str, Optional[type]], Optional[Any]]
@@ -349,6 +349,59 @@ class FilterEngine:
 
         if conditions:
             query = query.where(*conditions)
+
+        return query
+
+    def apply_or_filter_groups(
+        self,
+        query: Select,
+        columns_map: ColumnCollection[str, ColumnElement[Any]],
+        or_groups: Optional[List[OrFilterGroup]],
+    ) -> Select:
+        """
+        Apply OR filter groups to a query.
+
+        Each OrFilterGroup's filters are OR'd together into a single condition.
+        Multiple groups are AND'd with each other and with the rest of the query.
+
+        Args:
+            query: Base SQLAlchemy Select query
+            columns_map: Map of column names to column elements
+            or_groups: List of OR filter groups to apply
+
+        Returns:
+            Select: Query with OR filter groups applied
+
+        Raises:
+            HTTPException: If strict_mode is True and unknown field is encountered
+        """
+        if not or_groups:
+            return query
+
+        for group in or_groups:
+            conditions = []
+            for f in group.filters:
+                column = columns_map.get(f.field)
+
+                if column is None:
+                    column = self.get_entity_attribute(query, f.field)
+
+                if column is None:
+                    if self.strict_mode:
+                        available = ", ".join(sorted(columns_map.keys()))
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Unknown field '{f.field}'. Available fields: {available}",
+                        )
+                    continue
+
+                pytype = self.get_column_type(column)
+                condition = self.build_filter_condition(column, f, pytype)
+                if condition is not None:
+                    conditions.append(condition)
+
+            if conditions:
+                query = query.where(or_(*conditions))
 
         return query
 

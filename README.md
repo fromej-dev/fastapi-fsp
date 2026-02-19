@@ -4,6 +4,7 @@ Filter, Sort, and Paginate (FSP) utilities for FastAPI + SQLModel.
 
 fastapi-fsp helps you build standardized list endpoints that support:
 - Filtering on arbitrary fields with rich operators (eq, ne, lt, lte, gt, gte, in, between, like/ilike, null checks, contains/starts_with/ends_with)
+- OR filters for searching across multiple columns with a single search term
 - Sorting by field (asc/desc)
 - Pagination with page/per_page and convenient HATEOAS links
 
@@ -176,6 +177,91 @@ GET /heroes/?field=full_name&operator=starts_with&value=Spider&field=age&operato
 - The `hybrid_property` must have an `.expression` decorator that returns a valid SQL expression
 - The field should be declared as `ClassVar[type]` in the SQLModel base class to work with Pydantic
 - Only computed fields with SQL expressions are supported; Python-only properties cannot be filtered at the database level
+
+## OR Filters (Multi-Column Search)
+
+OR filters let you search across multiple columns with a single search term — ideal for powering a table search input in your frontend.
+
+### Query Parameters
+
+Use `search` and `search_fields` to search across columns with OR logic:
+
+```
+GET /heroes/?search=john&search_fields=name,secret_name,email
+```
+
+This generates: `WHERE name ILIKE '%john%' OR secret_name ILIKE '%john%' OR email ILIKE '%john%'`
+
+Combine with regular AND filters:
+
+```
+GET /heroes/?search=john&search_fields=name,email&field=deleted&operator=eq&value=false
+```
+
+This generates: `WHERE (name ILIKE '%john%' OR email ILIKE '%john%') AND deleted = false`
+
+### Programmatic API
+
+Use `CommonFilters.multi_field_search()` for server-side search:
+
+```python
+from fastapi_fsp import CommonFilters
+
+@app.get("/heroes/")
+def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+    or_groups = CommonFilters.multi_field_search(
+        fields=["name", "secret_name"],
+        term="john",
+        match_type="contains",  # or "starts_with", "ends_with"
+    )
+    fsp.with_or_filters(or_groups)
+    return fsp.generate_response(select(Hero), session)
+```
+
+Or build OR groups with the `FilterBuilder`:
+
+```python
+from fastapi_fsp import FilterBuilder
+
+or_group = (
+    FilterBuilder()
+    .where("name").contains("john")
+    .where("email").contains("john")
+    .build_or_group()
+)
+fsp.with_or_filters([or_group])
+```
+
+Or create `OrFilterGroup` objects directly:
+
+```python
+from fastapi_fsp import OrFilterGroup, Filter, FilterOperator
+
+group = OrFilterGroup(filters=[
+    Filter(field="name", operator=FilterOperator.CONTAINS, value="john"),
+    Filter(field="email", operator=FilterOperator.CONTAINS, value="john"),
+])
+fsp.with_or_filters([group])
+```
+
+### Response
+
+When OR filters are active, they appear in the response meta:
+
+```json
+{
+  "meta": {
+    "or_filters": [
+      {
+        "filters": [
+          {"field": "name", "operator": "contains", "value": "john"},
+          {"field": "email", "operator": "contains", "value": "john"}
+        ]
+      }
+    ]
+  }
+}
+```
 
 ## FilterBuilder API
 
@@ -350,6 +436,14 @@ def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depen
     "filters": [
       {"field": "name", "operator": "eq", "value": "Deadpond"}
     ],
+    "or_filters": [
+      {
+        "filters": [
+          {"field": "name", "operator": "contains", "value": "john"},
+          {"field": "email", "operator": "contains", "value": "john"}
+        ]
+      }
+    ],
     "sort": {"sort_by": "name", "order": "asc"}
   },
   "links": {
@@ -361,6 +455,8 @@ def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depen
   }
 }
 ```
+
+`filters` and `or_filters` are `null` when not active.
 
 ## Development
 
