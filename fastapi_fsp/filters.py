@@ -1,11 +1,22 @@
 """Filter engine with strategy pattern for operator handling."""
 
+import re
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from dateutil.parser import parse
 from fastapi import HTTPException, status
-from sqlalchemy import ColumnCollection, ColumnElement, Enum, Select, String, cast, or_
+from sqlalchemy import (
+    ColumnCollection,
+    ColumnElement,
+    Enum,
+    Select,
+    String,
+    cast,
+    func,
+    literal,
+    or_,
+)
 from sqlalchemy.sql.type_api import TypeDecorator
 from sqlmodel import not_
 
@@ -238,6 +249,62 @@ FILTER_STRATEGIES: Dict[FilterOperator, FilterStrategyFn] = {
 }
 
 
+def _sanitize_tsquery_token(token: str) -> str:
+    """Remove tsquery syntax characters from a search token."""
+    return re.sub(r"[&|!():*'\\]", "", token).strip()
+
+
+def _is_search_optimizable(or_groups: List[OrFilterGroup]) -> bool:
+    """
+    Check if OR groups represent a tokenized search pattern that can be optimized.
+
+    Returns True when all groups have CONTAINS filters on the same field set
+    with single-word values (no spaces).
+    """
+    if not or_groups:
+        return False
+
+    first_fields = None
+    for group in or_groups:
+        if not group.filters:
+            return False
+        fields = set()
+        for f in group.filters:
+            if f.operator != FilterOperator.CONTAINS:
+                return False
+            if " " in f.value:
+                return False
+            fields.add(f.field)
+        if first_fields is None:
+            first_fields = fields
+        elif fields != first_fields:
+            return False
+
+    # All filters in a group must share the same value (one token per group)
+    for group in or_groups:
+        values = {f.value for f in group.filters}
+        if len(values) != 1:
+            return False
+
+    return True
+
+
+def _build_concat_expr(columns: List[ColumnElement[Any]]) -> ColumnElement[Any]:
+    """
+    Build a concatenation expression using || and coalesce for cross-DB compatibility.
+
+    Produces: coalesce(col1::text, '') || ' ' || coalesce(col2::text, '') || ...
+    """
+    parts = []
+    for col in columns:
+        parts.append(func.coalesce(_as_text(col), literal("")))
+
+    expr = parts[0]
+    for part in parts[1:]:
+        expr = expr.concat(literal(" ")).concat(part)
+    return expr
+
+
 class FilterEngine:
     """
     Engine for building and applying SQL filter conditions.
@@ -256,6 +323,7 @@ class FilterEngine:
             strict_mode: If True, raise errors for unknown fields
         """
         self.strict_mode = strict_mode
+        self.search_backend: str = "ilike"
         self._type_cache: dict[int, Optional[type]] = {}
 
     def get_column_type(self, column: ColumnElement[Any]) -> Optional[type]:
@@ -434,6 +502,99 @@ class FilterEngine:
             if conditions:
                 query = query.where(or_(*conditions))
 
+        return query
+
+    def _resolve_search_columns(
+        self,
+        query: Select,
+        columns_map: ColumnCollection[str, ColumnElement[Any]],
+        or_groups: List[OrFilterGroup],
+    ) -> List[ColumnElement[Any]]:
+        """
+        Resolve the unique set of columns from the first group's filters.
+
+        All groups share the same fields in an optimizable search pattern.
+        """
+        seen = set()
+        columns = []
+        for f in or_groups[0].filters:
+            if f.field in seen:
+                continue
+            seen.add(f.field)
+            col = columns_map.get(f.field)
+            if col is None:
+                col = self.get_entity_attribute(query, f.field)
+            if col is not None:
+                columns.append(col)
+        return columns
+
+    def apply_search_optimized(
+        self,
+        query: Select,
+        columns_map: ColumnCollection[str, ColumnElement[Any]],
+        or_groups: Optional[List[OrFilterGroup]],
+        search_backend: str,
+    ) -> Select:
+        """
+        Apply optimized search if the OR groups match the tokenized search pattern.
+
+        Falls back to standard apply_or_filter_groups if groups are not optimizable.
+        """
+        if not or_groups:
+            return query
+        if not _is_search_optimizable(or_groups):
+            return self.apply_or_filter_groups(query, columns_map, or_groups)
+
+        columns = self._resolve_search_columns(query, columns_map, or_groups)
+        if not columns:
+            return query
+
+        if search_backend == "tsvector":
+            return self._apply_tsvector(query, columns, or_groups)
+        elif search_backend == "trigram":
+            return self._apply_trigram(query, columns, or_groups)
+
+        return self.apply_or_filter_groups(query, columns_map, or_groups)
+
+    def _apply_tsvector(
+        self,
+        query: Select,
+        columns: List[ColumnElement[Any]],
+        or_groups: List[OrFilterGroup],
+    ) -> Select:
+        """
+        Collapse all tokens into a single tsvector @@ tsquery expression.
+
+        Uses 'simple' config (no stemming, preserves numbers) with prefix matching (:*).
+        """
+        text_cols = [_as_text(col) for col in columns]
+        concat_expr = func.concat_ws(literal(" "), *text_cols)
+        ts_vector = func.to_tsvector(literal("simple"), concat_expr)
+
+        tokens = [g.filters[0].value for g in or_groups]
+        sanitized = [_sanitize_tsquery_token(t) for t in tokens if t.strip()]
+        if not sanitized:
+            return query
+        tsquery_str = " & ".join(f"{t}:*" for t in sanitized)
+        ts_query = func.to_tsquery(literal("simple"), literal(tsquery_str))
+
+        return query.where(ts_vector.op("@@")(ts_query))
+
+    def _apply_trigram(
+        self,
+        query: Select,
+        columns: List[ColumnElement[Any]],
+        or_groups: List[OrFilterGroup],
+    ) -> Select:
+        """
+        Apply one ILIKE per token on a concatenated column expression.
+
+        Reduces N*M -> N ILIKEs. With pg_trgm GIN index, these become index-scannable.
+        """
+        concat_expr = _build_concat_expr(columns)
+        for group in or_groups:
+            token = group.filters[0].value
+            query = query.where(concat_expr.ilike(f"%{token}%"))
         return query
 
     @staticmethod

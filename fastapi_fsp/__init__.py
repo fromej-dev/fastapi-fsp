@@ -14,6 +14,8 @@ from .models import (  # noqa: F401
     PaginatedResponse,
     Pagination,
     PaginationQuery,
+    SearchBackend,
+    SearchMode,
     SortingOrder,
     SortingQuery,
 )
@@ -42,6 +44,8 @@ __all__ = [
     "Filter",
     "FilterOperator",
     "OrFilterGroup",
+    "SearchBackend",
+    "SearchMode",
     "SortingOrder",
     "SortingQuery",
     "PaginationQuery",

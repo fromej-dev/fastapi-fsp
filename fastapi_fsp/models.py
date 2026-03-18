@@ -41,6 +41,21 @@ class SortingOrder(StrEnum):
     DESC = "desc"  # descending order
 
 
+class SearchMode(StrEnum):
+    """Search mode for multi-field search"""
+
+    PHRASE = "phrase"  # match entire search string as-is (legacy)
+    TOKEN = "token"  # split on whitespace, AND tokens together
+
+
+class SearchBackend(StrEnum):
+    """Search backend for query optimization"""
+
+    ILIKE = "ilike"  # N*M individual ILIKEs (universal, full scan)
+    TSVECTOR = "tsvector"  # to_tsvector + to_tsquery with prefix matching (PostgreSQL)
+    TRIGRAM = "trigram"  # concat + ILIKE per token, N ops (PostgreSQL pg_trgm, GIN-indexable)
+
+
 T = TypeVar("T")
 
 

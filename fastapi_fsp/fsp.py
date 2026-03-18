@@ -16,6 +16,7 @@ from fastapi_fsp.models import (
     OrFilterGroup,
     PaginatedResponse,
     PaginationQuery,
+    SearchMode,
     SortingOrder,
     SortingQuery,
 )
@@ -151,19 +152,23 @@ def _parse_search(
     """
     Parse search parameters from query parameters.
 
-    Supports: ?search=term&search_fields=name,email,city
+    Supports: ?search=term&search_fields=name,email,city&search_mode=token|phrase
 
-    This creates an OR filter group that matches the search term against
-    each specified field using case-insensitive CONTAINS (ILIKE %term%).
+    In token mode (default), the search string is split on whitespace and each
+    token becomes its own OrFilterGroup. All groups are AND'd together, meaning
+    every token must match at least one of the search fields.
+
+    In phrase mode, the entire search string is matched as-is (legacy behavior).
 
     Args:
         request: FastAPI Request object containing query parameters
 
     Returns:
-        Optional[List[OrFilterGroup]]: List with one OR group, or None
+        Optional[List[OrFilterGroup]]: List of OR groups, or None
 
     Raises:
-        HTTPException: If search is provided without search_fields
+        HTTPException: If search is provided without search_fields,
+            or if search_mode is invalid
     """
     query_params = request.query_params
     search = query_params.get("search")
@@ -185,6 +190,32 @@ def _parse_search(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="'search_fields' must contain at least one field name.",
         )
+
+    search_mode_raw = query_params.get("search_mode", SearchMode.TOKEN)
+    try:
+        search_mode = SearchMode(search_mode_raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Invalid search_mode '{search_mode_raw}'. "
+                f"Use: {', '.join(m.value for m in SearchMode)}"
+            ),
+        )
+
+    if search_mode == SearchMode.TOKEN:
+        tokens = search.split()
+        if not tokens:
+            return None
+        return [
+            OrFilterGroup(
+                filters=[
+                    Filter(field=field, operator=FilterOperator.CONTAINS, value=token)
+                    for field in fields
+                ]
+            )
+            for token in tokens
+        ]
 
     filters = [
         Filter(field=field, operator=FilterOperator.CONTAINS, value=search) for field in fields
@@ -553,6 +584,10 @@ class FSPManager:
         Raises:
             HTTPException: If strict_mode is True and unknown field is encountered
         """
+        if self._filter_engine.search_backend != "ilike":
+            return self._filter_engine.apply_search_optimized(
+                query, columns_map, or_filters, self._filter_engine.search_backend
+            )
         return self._filter_engine.apply_or_filter_groups(query, columns_map, or_filters)
 
     def _apply_sort(
@@ -593,6 +628,10 @@ class FSPManager:
         # Validate and constrain pagination values
         self.pagination.page = config.validate_page(self.pagination.page)
         self.pagination.per_page = config.validate_per_page(self.pagination.per_page)
+        # Search backend settings
+        self._filter_engine.search_backend = config.search_backend.value
+        if self.or_filters and len(self.or_filters) > config.max_search_tokens:
+            self.or_filters = self.or_filters[: config.max_search_tokens]
         return self
 
     def from_model(

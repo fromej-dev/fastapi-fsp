@@ -271,22 +271,29 @@ class CommonFilters:
         fields: List[str],
         term: str,
         match_type: str = "contains",
+        tokenize: bool = False,
     ) -> List[OrFilterGroup]:
         """
-        Create an OR filter group that searches across multiple fields.
+        Create OR filter groups that search across multiple fields.
 
         This is the programmatic equivalent of the ?search=term&search_fields=f1,f2
         query parameter. The search term is matched against each field using the
         specified match type, and results matching ANY field are returned.
+
+        When tokenize=True, the term is split on whitespace and each token becomes
+        its own OrFilterGroup. All groups are AND'd together, so every token must
+        match at least one field.
 
         Args:
             fields: List of field names to search across
             term: Search term
             match_type: Type of match - "contains", "starts_with", "ends_with"
                 (default: "contains")
+            tokenize: If True, split term on whitespace and create one group per token
+                (default: False)
 
         Returns:
-            List[OrFilterGroup]: List with one OR filter group
+            List[OrFilterGroup]: List of OR filter groups
 
         Raises:
             ValueError: If match_type is invalid or fields is empty
@@ -298,6 +305,13 @@ class CommonFilters:
                 term="john",
             )
             fsp.with_or_filters(or_groups)
+
+            # Tokenized search: "john doe" -> 2 groups
+            or_groups = CommonFilters.multi_field_search(
+                fields=["name", "email"],
+                term="john doe",
+                tokenize=True,
+            )
         """
         if not fields:
             raise ValueError("At least one field must be provided")
@@ -311,6 +325,19 @@ class CommonFilters:
         if operator is None:
             valid_types = "contains, starts_with, ends_with"
             raise ValueError(f"Invalid match_type: {match_type}. Use: {valid_types}")
+
+        if tokenize:
+            tokens = term.split()
+            if not tokens:
+                return []
+            return [
+                OrFilterGroup(
+                    filters=[
+                        Filter(field=field, operator=operator, value=token) for field in fields
+                    ]
+                )
+                for token in tokens
+            ]
 
         filters = [Filter(field=field, operator=operator, value=term) for field in fields]
         return [OrFilterGroup(filters=filters)]

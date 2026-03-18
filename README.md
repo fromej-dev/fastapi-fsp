@@ -374,6 +374,44 @@ def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depen
     return fsp.generate_response(select(Hero), session)
 ```
 
+### Search Backend Optimization
+
+By default, tokenized search generates N tokens x M fields = N*M individual ILIKE conditions, each requiring a full table scan. For PostgreSQL, you can choose a faster search backend:
+
+| Backend | SQL strategy | Substring match? | Indexable? |
+|---------|-------------|------------------|------------|
+| `ILIKE` (default) | N*M individual ILIKEs | Yes | No (full scan) |
+| `TSVECTOR` | `to_tsvector @@ to_tsquery` | Prefix only | GIN index |
+| `TRIGRAM` | concat + N ILIKEs | Yes | GIN + pg_trgm |
+
+**Key tradeoff**: `TSVECTOR` is fastest (single expression) but only matches word prefixes — `"media"` matches `"Medialaan"` but `"laan"` does not. `TRIGRAM` preserves full substring semantics while reducing N*M to N operations.
+
+```python
+from fastapi_fsp import FSPConfig, SearchBackend
+
+# Use tsvector for fast prefix-matching search (PostgreSQL only)
+config = FSPConfig(search_backend=SearchBackend.TSVECTOR)
+
+# Use trigram for full substring search with fewer operations (PostgreSQL only)
+config = FSPConfig(search_backend=SearchBackend.TRIGRAM)
+
+# Limit maximum search tokens (default: 10)
+config = FSPConfig(
+    search_backend=SearchBackend.TSVECTOR,
+    max_search_tokens=5,
+)
+
+@app.get("/heroes/")
+def read_heroes(
+    session: Session = Depends(get_session),
+    fsp: FSPManager = Depends(FSPManager),
+):
+    fsp.apply_config(config)
+    return fsp.generate_response(select(Hero), session)
+```
+
+Non-search OR groups (mixed operators, phrase mode, custom `with_or_filters()`) automatically fall back to the standard ILIKE path regardless of the configured backend.
+
 ### Strict Mode
 
 When `strict_mode=True`, FSPManager raises HTTP 400 errors for unknown filter/sort fields:

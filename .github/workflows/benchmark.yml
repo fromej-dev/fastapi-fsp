@@ -88,3 +88,52 @@ jobs:
         with:
           name: benchmark-results
           path: benchmark_output.txt
+
+  benchmark-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fsp_test
+          POSTGRES_PASSWORD: fsp_test
+          POSTGRES_DB: fsp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fsp_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Run PostgreSQL search backend tests
+        env:
+          DATABASE_URL: postgresql://fsp_test:fsp_test@localhost:5432/fsp_test
+        run: |
+          echo "## PostgreSQL Search Backend Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          uv run pytest tests/test_tsvector_pg.py -v --no-header 2>&1 | tee pg_test_output.txt
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat pg_test_output.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload PG test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-test-results
+          path: pg_test_output.txt

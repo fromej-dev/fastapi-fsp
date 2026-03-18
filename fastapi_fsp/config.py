@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from fastapi_fsp.models import SearchBackend
+
 
 @dataclass
 class FSPConfig:
@@ -55,6 +57,10 @@ class FSPConfig:
     allow_deep_pagination: bool = True
     max_page: Optional[int] = None
 
+    # Search backend settings
+    search_backend: SearchBackend = SearchBackend.ILIKE
+    max_search_tokens: int = 10
+
     # Reserved for future features
     _extra: dict = field(default_factory=dict)
 
@@ -74,6 +80,8 @@ class FSPConfig:
             raise ValueError("default_page must be >= 1")
         if self.max_page is not None and self.max_page < 1:
             raise ValueError("max_page must be >= 1 or None")
+        if self.max_search_tokens < 1:
+            raise ValueError("max_search_tokens must be >= 1")
 
     def validate_page(self, page: int) -> int:
         """
