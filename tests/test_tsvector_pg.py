@@ -28,6 +28,9 @@ from fastapi_fsp.models import (
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+# Default to psycopg3 (v3) for postgresql:// URLs
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 requires_pg = pytest.mark.skipif(
     not DATABASE_URL.startswith("postgresql"),

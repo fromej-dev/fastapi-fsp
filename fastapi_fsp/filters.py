@@ -16,6 +16,7 @@ from sqlalchemy import (
     func,
     literal,
     or_,
+    text,
 )
 from sqlalchemy.sql.type_api import TypeDecorator
 from sqlmodel import not_
@@ -569,14 +570,14 @@ class FilterEngine:
         """
         text_cols = [_as_text(col) for col in columns]
         concat_expr = func.concat_ws(literal(" "), *text_cols)
-        ts_vector = func.to_tsvector(literal("simple"), concat_expr)
+        ts_vector = func.to_tsvector(text("'simple'::regconfig"), concat_expr)
 
         tokens = [g.filters[0].value for g in or_groups]
         sanitized = [_sanitize_tsquery_token(t) for t in tokens if t.strip()]
         if not sanitized:
             return query
         tsquery_str = " & ".join(f"{t}:*" for t in sanitized)
-        ts_query = func.to_tsquery(literal("simple"), literal(tsquery_str))
+        ts_query = func.to_tsquery(text("'simple'::regconfig"), literal(tsquery_str))
 
         return query.where(ts_vector.op("@@")(ts_query))
 
