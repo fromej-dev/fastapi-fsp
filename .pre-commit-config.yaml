@@ -13,9 +13,9 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: pytest
+        entry: .venv/bin/pytest
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
-        args: ["-q"]
+        args: ["-q", "--no-cov"]

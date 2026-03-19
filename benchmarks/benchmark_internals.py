@@ -6,7 +6,7 @@ from typing import Optional
 from unittest.mock import Mock
 
 from fastapi_fsp.fsp import FSPManager
-from fastapi_fsp.models import Filter, FilterOperator, PaginationQuery, SortingQuery
+from fastapi_fsp.models import Filter, FilterOperator, OrFilterGroup, PaginationQuery, SortingQuery
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
@@ -190,10 +190,18 @@ def benchmark_apply_filters():
         ]
 
         # Create FSPManager instances
-        fsp_1 = FSPManager(request=request, filters=filters_1, sorting=None, pagination=pagination)
-        fsp_3 = FSPManager(request=request, filters=filters_3, sorting=None, pagination=pagination)
-        fsp_5 = FSPManager(request=request, filters=filters_5, sorting=None, pagination=pagination)
-        fsp_none = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
+        fsp_1 = FSPManager(
+            request=request, filters=filters_1, sorting=None, pagination=pagination, or_filters=None
+        )
+        fsp_3 = FSPManager(
+            request=request, filters=filters_3, sorting=None, pagination=pagination, or_filters=None
+        )
+        fsp_5 = FSPManager(
+            request=request, filters=filters_5, sorting=None, pagination=pagination, or_filters=None
+        )
+        fsp_none = FSPManager(
+            request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
+        )
 
         tests = {
             "1 filter": lambda: fsp_1._apply_filters(base_query, columns, filters_1),
@@ -232,12 +240,22 @@ def benchmark_apply_sort():
 
         # Create FSPManager instances
         fsp_asc = FSPManager(
-            request=request, filters=None, sorting=sort_age_asc, pagination=pagination
+            request=request,
+            filters=None,
+            sorting=sort_age_asc,
+            pagination=pagination,
+            or_filters=None,
         )
         fsp_desc = FSPManager(
-            request=request, filters=None, sorting=sort_name_desc, pagination=pagination
+            request=request,
+            filters=None,
+            sorting=sort_name_desc,
+            pagination=pagination,
+            or_filters=None,
         )
-        fsp_none = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
+        fsp_none = FSPManager(
+            request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
+        )
 
         tests = {
             "Sort by age ASC": lambda: fsp_asc._apply_sort(base_query, columns, sort_age_asc),
@@ -251,6 +269,202 @@ def benchmark_apply_sort():
                 f"  {name:30s} - Avg: {result['avg']:6.3f}ms, "
                 f"P50: {result['p50']:6.3f}ms, P95: {result['p95']:6.3f}ms"
             )
+
+
+def benchmark_apply_or_filters():
+    """Benchmark _apply_or_filters method with tokenized search groups."""
+    print("\n=== Benchmark: _apply_or_filters (tokenized search) ===")
+
+    engine = setup_database(100)
+    with Session(engine):
+        base_query = select(Hero)
+        columns = base_query.selected_columns
+
+        request = Mock()
+        request.url = Mock()
+        request.url.include_query_params = Mock(return_value="http://example.com")
+        pagination = PaginationQuery(page=1, per_page=20)
+
+        # Phrase mode: 1 group with 3 fields
+        phrase_groups = [
+            OrFilterGroup(
+                filters=[
+                    Filter(field="name", operator=FilterOperator.CONTAINS, value="Hero"),
+                    Filter(field="secret_name", operator=FilterOperator.CONTAINS, value="Hero"),
+                    Filter(field="city", operator=FilterOperator.CONTAINS, value="Hero"),
+                ]
+            )
+        ]
+
+        # Token mode: 2 tokens x 3 fields = 2 groups
+        token_2_groups = [
+            OrFilterGroup(
+                filters=[
+                    Filter(field="name", operator=FilterOperator.CONTAINS, value="Hero"),
+                    Filter(field="secret_name", operator=FilterOperator.CONTAINS, value="Hero"),
+                    Filter(field="city", operator=FilterOperator.CONTAINS, value="Hero"),
+                ]
+            ),
+            OrFilterGroup(
+                filters=[
+                    Filter(field="name", operator=FilterOperator.CONTAINS, value="Chicago"),
+                    Filter(field="secret_name", operator=FilterOperator.CONTAINS, value="Chicago"),
+                    Filter(field="city", operator=FilterOperator.CONTAINS, value="Chicago"),
+                ]
+            ),
+        ]
+
+        # Token mode: 3 tokens x 4 fields = 3 groups
+        token_3_groups = [
+            OrFilterGroup(
+                filters=[
+                    Filter(field=f, operator=FilterOperator.CONTAINS, value=v)
+                    for f in ["name", "secret_name", "city", "email"]
+                ]
+            )
+            for v in ["Hero", "Secret", "Chicago"]
+        ]
+
+        fsp_phrase = FSPManager(
+            request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
+        )
+        fsp_token2 = FSPManager(
+            request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
+        )
+        fsp_token3 = FSPManager(
+            request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
+        )
+        fsp_none = FSPManager(
+            request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
+        )
+
+        tests = {
+            "Phrase (1 group, 3 fields)": lambda: fsp_phrase._apply_or_filters(
+                base_query, columns, phrase_groups
+            ),
+            "Token (2 groups, 3 fields)": lambda: fsp_token2._apply_or_filters(
+                base_query, columns, token_2_groups
+            ),
+            "Token (3 groups, 4 fields)": lambda: fsp_token3._apply_or_filters(
+                base_query, columns, token_3_groups
+            ),
+            "No or_filters": lambda: fsp_none._apply_or_filters(base_query, columns, None),
+        }
+
+        for name, func in tests.items():
+            result = time_function(func, iterations=1000)
+            print(
+                f"  {name:30s} - Avg: {result['avg']:6.3f}ms, "
+                f"P50: {result['p50']:6.3f}ms, P95: {result['p95']:6.3f}ms"
+            )
+
+
+def benchmark_generate_response_search():
+    """Benchmark full generate_response with tokenized search at various dataset sizes."""
+    print("\n=== Benchmark: generate_response (tokenized search) ===")
+
+    from fastapi_fsp.config import FSPConfig
+    from fastapi_fsp.models import SearchBackend
+
+    for num_records in [100, 1000, 10000]:
+        print(f"\n  Dataset: {num_records} records")
+        engine = setup_database(num_records)
+
+        with Session(engine) as session:
+            base_query = select(Hero)
+
+            request = Mock()
+            request.url = Mock()
+            request.url.include_query_params = Mock(return_value="http://example.com")
+            pagination = PaginationQuery(page=1, per_page=20)
+
+            # Phrase: 1 group, 3 fields
+            phrase_groups = [
+                OrFilterGroup(
+                    filters=[
+                        Filter(field=f, operator=FilterOperator.CONTAINS, value="Hero")
+                        for f in ["name", "secret_name", "city"]
+                    ]
+                )
+            ]
+            fsp_phrase = FSPManager(
+                request=request,
+                filters=None,
+                sorting=None,
+                pagination=pagination,
+                or_filters=phrase_groups,
+            )
+
+            # Token: 2 tokens x 3 fields
+            token_groups = [
+                OrFilterGroup(
+                    filters=[
+                        Filter(field=f, operator=FilterOperator.CONTAINS, value=v)
+                        for f in ["name", "secret_name", "city"]
+                    ]
+                )
+                for v in ["Hero", "Chicago"]
+            ]
+            fsp_token = FSPManager(
+                request=request,
+                filters=None,
+                sorting=None,
+                pagination=pagination,
+                or_filters=token_groups,
+            )
+
+            # Token: 3 tokens x 4 fields
+            token_3_groups = [
+                OrFilterGroup(
+                    filters=[
+                        Filter(field=f, operator=FilterOperator.CONTAINS, value=v)
+                        for f in ["name", "secret_name", "city", "email"]
+                    ]
+                )
+                for v in ["Hero", "Secret", "Chicago"]
+            ]
+            fsp_token3 = FSPManager(
+                request=request,
+                filters=None,
+                sorting=None,
+                pagination=pagination,
+                or_filters=token_3_groups,
+            )
+
+            # Trigram: 3 tokens x 4 fields (concat + fewer ILIKEs)
+            trigram_3_groups = [
+                OrFilterGroup(
+                    filters=[
+                        Filter(field=f, operator=FilterOperator.CONTAINS, value=v)
+                        for f in ["name", "secret_name", "city", "email"]
+                    ]
+                )
+                for v in ["Hero", "Secret", "Chicago"]
+            ]
+            fsp_trigram3 = FSPManager(
+                request=request,
+                filters=None,
+                sorting=None,
+                pagination=pagination,
+                or_filters=trigram_3_groups,
+            )
+            fsp_trigram3.apply_config(FSPConfig(search_backend=SearchBackend.TRIGRAM))
+
+            tests = {
+                "Phrase (1 grp, 3 flds)": lambda: fsp_phrase.generate_response(base_query, session),
+                "Token (2 grps, 3 flds)": lambda: fsp_token.generate_response(base_query, session),
+                "Token (3 grps, 4 flds)": lambda: fsp_token3.generate_response(base_query, session),
+                "Trigram (3 tok, 4 flds)": lambda: fsp_trigram3.generate_response(
+                    base_query, session
+                ),
+            }
+
+            for name, func in tests.items():
+                result = time_function(func, iterations=50)
+                print(
+                    f"    {name:30s} - Avg: {result['avg']:6.3f}ms, "
+                    f"P50: {result['p50']:6.3f}ms, P95: {result['p95']:6.3f}ms"
+                )
 
 
 def benchmark_count_total():
@@ -304,7 +518,9 @@ def benchmark_pagination():
             request.url.include_query_params = Mock(return_value="http://example.com")
 
             pagination = PaginationQuery(page=1, per_page=20)
-            fsp = FSPManager(request=request, filters=None, sorting=None, pagination=pagination)
+            fsp = FSPManager(
+                request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
+            )
 
             def paginate_first_page():
                 return fsp.paginate(base_query, session)
@@ -312,7 +528,11 @@ def benchmark_pagination():
             # Deep pagination
             pagination_deep = PaginationQuery(page=25, per_page=20)
             fsp_deep = FSPManager(
-                request=request, filters=None, sorting=None, pagination=pagination_deep
+                request=request,
+                filters=None,
+                sorting=None,
+                pagination=pagination_deep,
+                or_filters=None,
             )
 
             def paginate_deep():
@@ -350,7 +570,7 @@ def benchmark_generate_response():
             # Simple pagination
             pagination = PaginationQuery(page=1, per_page=20)
             fsp_simple = FSPManager(
-                request=request, filters=None, sorting=None, pagination=pagination
+                request=request, filters=None, sorting=None, pagination=pagination, or_filters=None
             )
 
             def simple_response():
@@ -363,7 +583,11 @@ def benchmark_generate_response():
             ]
             sorting = SortingQuery(sort_by="age", order="asc")
             fsp_complex = FSPManager(
-                request=request, filters=filters, sorting=sorting, pagination=pagination
+                request=request,
+                filters=filters,
+                sorting=sorting,
+                pagination=pagination,
+                or_filters=None,
             )
 
             def complex_response():
@@ -392,10 +616,12 @@ def main():
     benchmark_split_values()
     benchmark_apply_filter()
     benchmark_apply_filters()
+    benchmark_apply_or_filters()
     benchmark_apply_sort()
     benchmark_count_total()
     benchmark_pagination()
     benchmark_generate_response()
+    benchmark_generate_response_search()
 
     print("\n" + "=" * 80)
     print("BENCHMARKS COMPLETE")

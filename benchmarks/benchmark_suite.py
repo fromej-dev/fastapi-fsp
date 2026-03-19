@@ -4,10 +4,11 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from fastapi_fsp.fsp import FSPManager
 from fastapi_fsp.models import PaginatedResponse
+from sqlalchemy import StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 
@@ -96,6 +97,7 @@ class BenchmarkSuite:
         self.engine = create_engine(
             "sqlite:///:memory:",
             connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
         )
         self.app = FastAPI()
         self.client = None
@@ -139,8 +141,8 @@ class BenchmarkSuite:
         @self.app.get("/heroes/", response_model=PaginatedResponse[HeroPublic])
         def read_heroes(
             *,
-            session: Session = FastAPI.Depends(get_session),
-            fsp: FSPManager = FastAPI.Depends(FSPManager),
+            session: Session = Depends(get_session),
+            fsp: FSPManager = Depends(FSPManager),
         ):
             query = select(Hero)
             return fsp.generate_response(query, session)
@@ -300,6 +302,65 @@ class BenchmarkSuite:
 
         return self._run_benchmark("Complex Query (filters+sort+pagination)", request)
 
+    def benchmark_search_phrase_single_field(self):
+        """Benchmark phrase search on a single field."""
+
+        def request():
+            return self.client.get("/heroes/?search=Hero_1&search_fields=name&search_mode=phrase")
+
+        return self._run_benchmark("Search Phrase (1 field)", request)
+
+    def benchmark_search_phrase_multi_field(self):
+        """Benchmark phrase search on multiple fields."""
+
+        def request():
+            return self.client.get(
+                "/heroes/?search=Hero_1&search_fields=name,secret_name,email,city"
+                "&search_mode=phrase"
+            )
+
+        return self._run_benchmark("Search Phrase (4 fields)", request)
+
+    def benchmark_search_token_2_tokens(self):
+        """Benchmark tokenized search with 2 tokens."""
+
+        def request():
+            return self.client.get(
+                "/heroes/?search=Hero Chicago&search_fields=name,secret_name,city&search_mode=token"
+            )
+
+        return self._run_benchmark("Search Token (2 tokens, 3 fields)", request)
+
+    def benchmark_search_token_3_tokens(self):
+        """Benchmark tokenized search with 3 tokens."""
+
+        def request():
+            return self.client.get(
+                "/heroes/?search=Hero Secret Chicago&search_fields=name,secret_name,city,email"
+                "&search_mode=token"
+            )
+
+        return self._run_benchmark("Search Token (3 tokens, 4 fields)", request)
+
+    def benchmark_search_token_default(self):
+        """Benchmark tokenized search with default mode (no search_mode param)."""
+
+        def request():
+            return self.client.get("/heroes/?search=Hero Chicago&search_fields=name,city")
+
+        return self._run_benchmark("Search Token Default (2 tokens, 2 fields)", request)
+
+    def benchmark_search_token_with_sort_and_pagination(self):
+        """Benchmark tokenized search combined with sorting and pagination."""
+
+        def request():
+            return self.client.get(
+                "/heroes/?search=Hero Chicago&search_fields=name,secret_name,city"
+                "&sort_by=age&order=desc&page=1&per_page=20"
+            )
+
+        return self._run_benchmark("Search Token + Sort + Pagination", request)
+
     def run_all_benchmarks(self) -> Dict[str, BenchmarkResult]:
         """Run all benchmarks and return results."""
         print(
@@ -323,6 +384,12 @@ class BenchmarkSuite:
             self.benchmark_sort_desc,
             self.benchmark_filter_and_sort,
             self.benchmark_complex_query,
+            self.benchmark_search_phrase_single_field,
+            self.benchmark_search_phrase_multi_field,
+            self.benchmark_search_token_2_tokens,
+            self.benchmark_search_token_3_tokens,
+            self.benchmark_search_token_default,
+            self.benchmark_search_token_with_sort_and_pagination,
         ]
 
         for benchmark in benchmarks:
