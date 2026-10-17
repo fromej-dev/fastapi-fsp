@@ -1,7 +1,7 @@
 """Filter engine with strategy pattern for operator handling."""
 
 import re
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Any, Callable, Dict, List, Optional
 
 from dateutil.parser import parse
@@ -68,6 +68,11 @@ def _coerce_value(column: ColumnElement[Any], raw: str, pytype: Optional[type] =
                 return parse(raw)
             except ValueError:
                 return raw
+    if pytype is date or pytype is time:
+        try:
+            return pytype.fromisoformat(raw)
+        except ValueError:
+            return raw
     try:
         return pytype(raw)
     except Exception:

@@ -3,7 +3,15 @@
 from enum import StrEnum
 from typing import Generic, List, Optional, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from pydantic_core import PydanticCustomError
+
+# Maybe make it configurable in the future
+_BLOCKLIST = [
+    "password",
+    "password_hash",
+    "secret",
+]
 
 
 class FilterOperator(StrEnum):
@@ -66,6 +74,18 @@ class Filter(BaseModel):
     operator: FilterOperator
     value: str
 
+    @field_validator("field", mode="after")
+    @classmethod
+    def validate_field(cls, data: str) -> str:
+        """Block restricted fields"""
+        if data in _BLOCKLIST:
+            raise PydanticCustomError(
+                "restricted_field",
+                f"Filtering by '{data}' is not allowed",
+                {"field": data},
+            )
+        return data
+
 
 class OrFilterGroup(BaseModel):
     """A group of filters combined with OR logic.
@@ -97,6 +117,18 @@ class SortingQuery(BaseModel):
 
     sort_by: str
     order: SortingOrder
+
+    @field_validator("sort_by", mode="after")
+    @classmethod
+    def validate_field(cls, data: str) -> str:
+        """Block restricted fields"""
+        if data in _BLOCKLIST:
+            raise PydanticCustomError(
+                "restricted_field",
+                f"Sorting by '{data}' is not allowed",
+                {"sort_by": data},
+            )
+        return data
 
 
 class Pagination(BaseModel):
