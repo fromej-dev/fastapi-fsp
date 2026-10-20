@@ -203,24 +203,30 @@ def _parse_search(
             ),
         )
 
-    if search_mode == SearchMode.TOKEN:
-        tokens = search.split()
-        if not tokens:
-            return None
-        return [
-            OrFilterGroup(
-                filters=[
-                    Filter(field=field, operator=FilterOperator.CONTAINS, value=token)
-                    for field in fields
-                ]
-            )
-            for token in tokens
-        ]
+    try:
+        if search_mode == SearchMode.TOKEN:
+            tokens = search.split()
+            if not tokens:
+                return None
+            return [
+                OrFilterGroup(
+                    filters=[
+                        Filter(field=field, operator=FilterOperator.CONTAINS, value=token)
+                        for field in fields
+                    ]
+                )
+                for token in tokens
+            ]
 
-    filters = [
-        Filter(field=field, operator=FilterOperator.CONTAINS, value=search) for field in fields
-    ]
-    return [OrFilterGroup(filters=filters)]
+        filters = [
+            Filter(field=field, operator=FilterOperator.CONTAINS, value=search) for field in fields
+        ]
+        return [OrFilterGroup(filters=filters)]
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid search_fields: {str(e)}",
+        ) from e
 
 
 def _parse_sort(
@@ -239,7 +245,13 @@ def _parse_sort(
     """
     if not sort_by:
         return None
-    return SortingQuery(sort_by=sort_by, order=order)
+    try:
+        return SortingQuery(sort_by=sort_by, order=order)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid sort_by: {str(e)}",
+        ) from e
 
 
 def _parse_pagination(
