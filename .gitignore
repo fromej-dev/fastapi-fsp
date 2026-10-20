@@ -57,4 +57,8 @@ debug.log
 .swp
 .swo
 
-.idea
+# MkDocs
+site/
+
+# Node (examples)
+node_modules/
