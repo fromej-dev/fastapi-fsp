@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: read
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,7 +23,17 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Sync (no dev)
+      - name: Check tag matches pyproject version
+        run: |
+          VERSION="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
+          if [ "v${VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${VERSION}." && exit 1
+          fi
+
+      - name: Extract release notes from CHANGELOG.md
+        run: scripts/changelog_section.sh "${GITHUB_REF_NAME#v}" > release_notes.md
+
+      - name: Sync
         run: uv sync
 
       - name: Run tests
@@ -39,4 +49,16 @@ jobs:
           if [ -z "$UV_PUBLISH_TOKEN" ]; then
             echo "PYPI_API_TOKEN secret is not set." && exit 1
           fi
-          uv publish --token "$UV_PUBLISH_TOKEN"
+          # --check-url skips files PyPI already has, so re-running a tag is safe.
+          uv publish --token "$UV_PUBLISH_TOKEN" --check-url https://pypi.org/simple/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file release_notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$GITHUB_REF_NAME" --notes-file release_notes.md
+          fi
