@@ -1,16 +1,64 @@
 # fastapi-fsp
 
-Filter, Sort, and Paginate (FSP) utilities for FastAPI + SQLModel.
+[![PyPI](https://img.shields.io/pypi/v/fastapi-fsp)](https://pypi.org/project/fastapi-fsp/)
+[![Python versions](https://img.shields.io/pypi/pyversions/fastapi-fsp)](https://pypi.org/project/fastapi-fsp/)
+[![CI](https://github.com/fromej-dev/fastapi-fsp/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/fromej-dev/fastapi-fsp/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/fromej-dev/fastapi-fsp/branch/master/graph/badge.svg)](https://codecov.io/gh/fromej-dev/fastapi-fsp)
+[![License: MIT](https://img.shields.io/pypi/l/fastapi-fsp)](https://github.com/fromej-dev/fastapi-fsp/blob/master/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-zensical-blue)](https://fromej-dev.github.io/fastapi-fsp/)
 
-fastapi-fsp helps you build standardized list endpoints that support:
-- Filtering on arbitrary fields with rich operators (eq, ne, lt, lte, gt, gte, in, between, like/ilike, null checks, contains/starts_with/ends_with)
-- OR filters for searching across multiple columns with a single search term
-- Sorting by field (asc/desc)
-- Pagination with page/per_page and convenient HATEOAS links
+**Filter, sort, paginate and search a FastAPI list endpoint with one dependency.**
 
-It is framework-friendly: you declare it as a FastAPI dependency and feed it a SQLModel/SQLAlchemy Select query and a Session.
+<!-- --8<-- [start:intro] -->
+Add `fsp: FSPManager = Depends(FSPManager)` to an endpoint, pass it a SQLModel or SQLAlchemy
+`select()`, and the endpoint accepts filters, sorting, pagination and multi-column search
+from the query string. No filter schema to declare per model.
+
+```
+GET /heroes/?search=spider+man&search_fields=name,secret_name&field=age&operator=gte&value=18&sort_by=name&page=2
+```
+
+```json
+{
+  "data": [{"id": 7, "name": "Spider-Man", "secret_name": "Peter Parker", "age": 18}],
+  "meta": {"pagination": {"total_items": 11, "per_page": 10, "current_page": 2, "total_pages": 2}},
+  "links": {"self": "...", "first": "...", "next": null, "prev": "...", "last": "..."}
+}
+```
+
+It is built for the backend of a data table: the search box, column filters, sortable
+headers and the pager all map to query parameters on one endpoint. See the
+[React + TanStack Table example](https://github.com/fromej-dev/fastapi-fsp/tree/master/examples/react-table).
+
+![A TanStack Table searching, filtering, sorting and paging through a fastapi-fsp endpoint](https://raw.githubusercontent.com/fromej-dev/fastapi-fsp/master/docs/assets/react-table-demo.gif)
+
+## Why fastapi-fsp?
+
+[fastapi-pagination](https://github.com/uriyyo/fastapi-pagination) and
+[fastapi-filter](https://github.com/arthurio/fastapi-filter) are good libraries that each
+cover part of this. fastapi-fsp covers all of it in one dependency, for SQL databases:
+
+|                                                   | fastapi-fsp                                  | fastapi-pagination                       | fastapi-filter                       |
+|---------------------------------------------------|----------------------------------------------|------------------------------------------|--------------------------------------|
+| Pagination                                        | ✅ page / per_page, total count, HATEOAS links | ✅ page, limit-offset and cursor           | ➖ pair it with fastapi-pagination    |
+| Filtering                                         | ✅ 18 operators on any column                  | ➖                                        | ✅ via a `Filter` class per model     |
+| Sorting                                           | ✅                                            | ➖                                        | ✅                                    |
+| Search one term across several columns (OR)       | ✅ `search` + `search_fields`, per-word matching | ➖                                     | ✅ over the fields you declare        |
+| Indexed PostgreSQL search (`tsvector`, `pg_trgm`) | ✅                                            | ➖                                        | ➖                                    |
+| Setup per endpoint                                | one `Depends(FSPManager)`                    | one `Depends` + `paginate()`             | a `Filter` class per model           |
+| Backends                                          | SQLModel / SQLAlchemy, sync and async        | SQLAlchemy, SQLModel, MongoDB, and more  | SQLAlchemy, MongoEngine              |
+
+Choose **fastapi-pagination** if you need cursor pagination or a non-SQL backend. Choose
+**fastapi-filter** if you want every filter declared as a typed field that shows up in the
+OpenAPI schema. Choose **fastapi-fsp** if you want one dependency that turns a `select()`
+into a full list endpoint, with fast search on PostgreSQL. It also filters and sorts on
+computed `hybrid_property` fields.
+
+Full documentation: **[fromej-dev.github.io/fastapi-fsp](https://fromej-dev.github.io/fastapi-fsp/)**
+<!-- --8<-- [end:intro] -->
 
 ## Installation
+<!-- --8<-- [start:installation] -->
 
 Using uv (recommended):
 
@@ -28,8 +76,10 @@ Using pip:
 ```
 pip install fastapi-fsp
 ```
+<!-- --8<-- [end:installation] -->
 
 ## Quick start
+<!-- --8<-- [start:quickstart] -->
 
 Below is a minimal example using FastAPI and SQLModel.
 
@@ -74,8 +124,10 @@ Run the app and query:
 - Filtering: `GET /heroes/?field=age&operator=gte&value=21`
 
 The response includes data, meta (pagination, filters, sorting), and links (self, first, next, prev, last).
+<!-- --8<-- [end:quickstart] -->
 
 ## Query parameters
+<!-- --8<-- [start:query-parameters] -->
 
 Pagination:
 - page: integer (>=1), default 1
@@ -118,8 +170,10 @@ Example (indexed format):
 Notes:
 - Both formats are equivalent; the indexed format takes precedence if present.
 - If any filter is incomplete (missing operator or value in the indexed form, or mismatched counts of simple triplets), the API responds with HTTP 400.
+<!-- --8<-- [end:query-parameters] -->
 
 ## Filtering on Computed Fields
+<!-- --8<-- [start:computed-fields] -->
 
 You can filter (and sort) on SQLAlchemy `hybrid_property` fields that have a SQL expression defined. This enables filtering on calculated or derived values at the database level.
 
@@ -177,8 +231,10 @@ GET /heroes/?field=full_name&operator=starts_with&value=Spider&field=age&operato
 - The `hybrid_property` must have an `.expression` decorator that returns a valid SQL expression
 - The field should be declared as `ClassVar[type]` in the SQLModel base class to work with Pydantic
 - Only computed fields with SQL expressions are supported; Python-only properties cannot be filtered at the database level
+<!-- --8<-- [end:computed-fields] -->
 
 ## OR Filters (Multi-Column Search)
+<!-- --8<-- [start:or-filters] -->
 
 OR filters let you search across multiple columns with a single search term — ideal for powering a table search input in your frontend.
 
@@ -191,6 +247,11 @@ GET /heroes/?search=john&search_fields=name,secret_name,email
 ```
 
 This generates: `WHERE name ILIKE '%john%' OR secret_name ILIKE '%john%' OR email ILIKE '%john%'`
+
+A search with several words is split into tokens by default (`search_mode=token`), and every
+token has to match at least one field: `?search=john smith&search_fields=first_name,last_name`
+finds "John Smith" even though no single column contains "john smith". Use
+`search_mode=phrase` to match the whole string as one value.
 
 Combine with regular AND filters:
 
@@ -262,8 +323,10 @@ When OR filters are active, they appear in the response meta:
   }
 }
 ```
+<!-- --8<-- [end:or-filters] -->
 
 ## FilterBuilder API
+<!-- --8<-- [start:filter-builder] -->
 
 For programmatic filter creation, use the fluent `FilterBuilder` API:
 
@@ -315,8 +378,10 @@ def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depen
 | `.starts_with(prefix)` | Starts with (case-insensitive) |
 | `.ends_with(suffix)` | Ends with (case-insensitive) |
 | `.contains(substring)` | Contains (case-insensitive) |
+<!-- --8<-- [end:filter-builder] -->
 
 ## Common Filter Presets
+<!-- --8<-- [start:presets] -->
 
 For frequently used filter patterns, use `CommonFilters`:
 
@@ -345,8 +410,10 @@ filters = CommonFilters.search("name", "john", match_type="contains")
 # Combine presets
 filters = CommonFilters.active() + CommonFilters.recent(days=30)
 ```
+<!-- --8<-- [end:presets] -->
 
 ## Configuration
+<!-- --8<-- [start:configuration] -->
 
 Customize FSPManager behavior with `FSPConfig`:
 
@@ -421,8 +488,10 @@ When `strict_mode=True`, FSPManager raises HTTP 400 errors for unknown filter/so
 # GET /heroes/?field=unknown_field&operator=eq&value=test
 # Error: "Unknown field 'unknown_field'. Available fields: age, id, name, secret_name"
 ```
+<!-- --8<-- [end:configuration] -->
 
 ## Convenience Methods
+<!-- --8<-- [start:convenience] -->
 
 ### from_model()
 
@@ -458,8 +527,10 @@ def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depen
         .generate_response(select(Hero), session)
     )
 ```
+<!-- --8<-- [end:convenience] -->
 
 ## Response model
+<!-- --8<-- [start:response] -->
 
 ```
 {
@@ -495,45 +566,14 @@ def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depen
 ```
 
 `filters` and `or_filters` are `null` when not active.
+<!-- --8<-- [end:response] -->
 
-## Development
+## Contributing
 
-This project uses uv as the package manager.
-
-- Create env and sync deps:
-```
-uv venv
-. .venv/bin/activate
-uv sync --dev
-```
-
-- Run lint and format checks:
-```
-uv run ruff check .
-uv run ruff format --check .
-```
-
-- Run tests:
-```
-uv run pytest -q
-```
-
-- Build the package:
-```
-uv build
-```
-
-## CI/CD and Releases
-
-GitHub Actions workflows are included:
-- CI (lint + tests) runs on pushes and PRs.
-- Release: pushing a tag matching `v*.*.*` runs tests, builds, and publishes to PyPI using `PYPI_API_TOKEN` secret.
-
-To release:
-1. Update the version in `pyproject.toml`.
-2. Push a tag, e.g. `git tag v0.1.1 && git push origin v0.1.1`.
-3. Ensure the repository has `PYPI_API_TOKEN` secret set (an API token from PyPI).
+Issues and pull requests are welcome. [CONTRIBUTING.md](https://github.com/fromej-dev/fastapi-fsp/blob/master/CONTRIBUTING.md) covers the dev
+setup, the checks CI runs, and how releases are made. Changes per version are in
+[CHANGELOG.md](https://github.com/fromej-dev/fastapi-fsp/blob/master/CHANGELOG.md) and on the [Releases](https://github.com/fromej-dev/fastapi-fsp/releases) page.
 
 ## License
 
-MIT License. See LICENSE.
+MIT License. See [LICENSE](https://github.com/fromej-dev/fastapi-fsp/blob/master/LICENSE).

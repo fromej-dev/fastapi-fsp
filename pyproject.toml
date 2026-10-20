@@ -5,26 +5,47 @@ build-backend = "hatchling.build"
 [project]
 name = "fastapi-fsp"
 version = "0.6.0"
-description = "Filter, Sort, and Paginate (FSP) utilities for FastAPI + SQLModel"
+description = "Filter, sort, paginate and search FastAPI list endpoints with one dependency (SQLModel / SQLAlchemy)"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
   { name = "Evert Jan Stamhuis", email = "ej@fromejdevelopment.nl" },
 ]
 license = { text = "MIT" }
-keywords = ["fastapi", "sqlmodel", "pagination", "sorting", "filtering", "api"]
+keywords = [
+  "fastapi",
+  "sqlmodel",
+  "sqlalchemy",
+  "pagination",
+  "filtering",
+  "sorting",
+  "search",
+  "full-text-search",
+  "postgresql",
+  "query-parameters",
+  "rest",
+  "api",
+  "data-table",
+]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3 :: Only",
+  "Framework :: AsyncIO",
   "Framework :: FastAPI",
+  "Framework :: Pydantic :: 2",
+  "Topic :: Database",
   "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
   "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
 ]
 dependencies = [
     "fastapi>=0.121.1",
@@ -34,8 +55,14 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/fromej-dev/fastapi-fsp"
+Documentation = "https://fromej-dev.github.io/fastapi-fsp/"
 Repository = "https://github.com/fromej-dev/fastapi-fsp"
+Changelog = "https://github.com/fromej-dev/fastapi-fsp/blob/master/CHANGELOG.md"
 Issues = "https://github.com/fromej-dev/fastapi-fsp/issues"
+Releases = "https://github.com/fromej-dev/fastapi-fsp/releases"
+
+[tool.hatch.build.targets.sdist]
+include = ["/fastapi_fsp", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
 [dependency-groups]
 dev = [
@@ -49,6 +76,9 @@ dev = [
     "pytest-mock>=3.14.1",
     "ruff>=0.5.0",
     "pre-commit>=3.7.0",
+]
+docs = [
+    "zensical>=0.0.71",
 ]
 
 [tool.ruff]

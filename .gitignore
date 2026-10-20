@@ -57,4 +57,9 @@ debug.log
 .swp
 .swo
 
-.idea
+# Docs (Zensical)
+site/
+.cache/
+
+# Node (examples)
+node_modules/

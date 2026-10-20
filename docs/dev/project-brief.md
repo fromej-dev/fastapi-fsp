@@ -170,8 +170,8 @@ MIT License
 
 ## Documentation
 - README.md with comprehensive documentation
-- OPTIMIZATION_ANALYSIS.md with performance analysis
-- RECOMMENDATIONS.md with implementation status
+- optimization-analysis.md with performance analysis
+- recommendations.md with implementation status
 
 ## Test Coverage
 - 162 tests

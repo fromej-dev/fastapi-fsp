@@ -1,0 +1,57 @@
+site_name: fastapi-fsp
+site_description: Filter, sort, paginate and search FastAPI list endpoints with one dependency.
+site_url: https://fromej-dev.github.io/fastapi-fsp/
+repo_url: https://github.com/fromej-dev/fastapi-fsp
+repo_name: fromej-dev/fastapi-fsp
+edit_uri: edit/master/README.md
+
+# Built with Zensical (https://zensical.org), which reads this mkdocs.yml as-is.
+# Most pages pull their content from README.md (see the --8<-- markers there),
+# so the README stays the single source.
+exclude_docs: |
+  dev/
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Query parameters: query-parameters.md
+  - Search: search.md
+  - Computed fields: computed-fields.md
+  - Filters in code: filters-in-code.md
+  - Configuration: configuration.md
+  - Response format: response.md
+  - Example app: example.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
