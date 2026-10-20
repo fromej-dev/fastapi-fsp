@@ -11,7 +11,7 @@ breaking changes; they are called out under **Changed**.
 - Date and time filters accept ISO 8601 strings, so `?field=created_at&operator=gte&value=2026-01-01T00:00:00` works directly ([#18](https://github.com/fromej-dev/fastapi-fsp/pull/18), thanks @Harold2017).
 - Filtering and sorting on sensitive column names (`password`, `password_hash`, `secret`) is rejected with HTTP 400 ([#18](https://github.com/fromej-dev/fastapi-fsp/pull/18), thanks @Harold2017).
 - `py.typed` marker, so type checkers use the package's inline type hints.
-- Documentation site (MkDocs Material), `CONTRIBUTING.md`, and this changelog.
+- Documentation site (built with Zensical), `CONTRIBUTING.md`, and this changelog.
 - A React + TanStack Table example in `examples/react-table`.
 
 ## [0.6.0] - 2026-03-19

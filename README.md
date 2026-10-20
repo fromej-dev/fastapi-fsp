@@ -5,7 +5,7 @@
 [![CI](https://github.com/fromej-dev/fastapi-fsp/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/fromej-dev/fastapi-fsp/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/fromej-dev/fastapi-fsp/branch/master/graph/badge.svg)](https://codecov.io/gh/fromej-dev/fastapi-fsp)
 [![License: MIT](https://img.shields.io/pypi/l/fastapi-fsp)](https://github.com/fromej-dev/fastapi-fsp/blob/master/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://fromej-dev.github.io/fastapi-fsp/)
+[![Docs](https://img.shields.io/badge/docs-zensical-blue)](https://fromej-dev.github.io/fastapi-fsp/)
 
 **Filter, sort, paginate and search a FastAPI list endpoint with one dependency.**
 

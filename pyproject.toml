@@ -78,8 +78,7 @@ dev = [
     "pre-commit>=3.7.0",
 ]
 docs = [
-    "mkdocs>=1.6,<2",
-    "mkdocs-material>=9.5",
+    "zensical>=0.0.71",
 ]
 
 [tool.ruff]

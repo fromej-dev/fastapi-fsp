@@ -5,6 +5,7 @@ repo_url: https://github.com/fromej-dev/fastapi-fsp
 repo_name: fromej-dev/fastapi-fsp
 edit_uri: edit/master/README.md
 
+# Built with Zensical (https://zensical.org), which reads this mkdocs.yml as-is.
 # Most pages pull their content from README.md (see the --8<-- markers there),
 # so the README stays the single source.
 exclude_docs: |

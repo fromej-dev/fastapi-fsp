@@ -20,7 +20,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Build site
-        run: uv run --only-group docs mkdocs build --strict
+        run: uv run --only-group docs zensical build --strict
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'

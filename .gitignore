@@ -57,8 +57,9 @@ debug.log
 .swp
 .swo
 
-# MkDocs
+# Docs (Zensical)
 site/
+.cache/
 
 # Node (examples)
 node_modules/

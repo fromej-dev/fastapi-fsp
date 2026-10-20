@@ -47,7 +47,7 @@ Preview the docs site locally:
 
 ```bash
 uv sync --group docs
-uv run mkdocs serve
+uv run zensical serve
 ```
 
 ## Reporting bugs
