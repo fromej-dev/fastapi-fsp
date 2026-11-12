@@ -7,8 +7,19 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-12
+
 ### Added
-- `allowed_fields` on `FSPConfig`, with `filterable_fields`, `sortable_fields` and `searchable_fields` overrides. Pass field names or a pydantic/SQLModel class (its fields and computed fields are used). `apply_config()` then rejects filter, search and sort keys from the request that are not in the list with HTTP 400. Off by default; use it to keep columns the response model hides (such as password hashes or tokens) from being filtered or sorted on.
+- `FSPManager.depends(config)` builds the endpoint dependency from an `FSPConfig`. `max_per_page`, `min_per_page`, `default_per_page`, `default_page` and `max_page` are now validated during parsing (HTTP 422) and appear in the OpenAPI schema, so `max_per_page` above 100 works. Strict mode, search settings and field allowlists come from the same config ([#21](https://github.com/fromej-dev/fastapi-fsp/issues/21)).
+- `denied_fields` on `FSPConfig` (default `DEFAULT_DENIED_FIELDS`: `password`, `password_hash`, `secret`). It replaces the hardcoded blocklist and applies only to operations that have no allowlist ([#20](https://github.com/fromej-dev/fastapi-fsp/issues/20)).
+- `use_window_function` on `FSPConfig`.
+- `allowed_fields` on `FSPConfig`, with `filterable_fields`, `sortable_fields` and `searchable_fields` overrides. Pass field names or a pydantic/SQLModel class (its fields and computed fields are used). Filter, search and sort keys from the request that are not in the list get HTTP 400. Off by default; use it to keep columns the response model hides (such as password hashes or tokens) from being filtered or sorted on.
+
+### Changed
+- `Filter` and `SortingQuery` no longer reject `password`, `password_hash` and `secret` themselves. The check now runs while parsing the request, so filters built in code are not affected, and a field listed in an allowlist is no longer refused by the denylist. The error message is now e.g. `Sorting by 'password' is not allowed.`
+
+### Deprecated
+- `FSPManager.apply_config()`. Use `Depends(FSPManager.depends(config))` instead. It still works and now emits a `DeprecationWarning`.
 
 ## [0.7.0] - 2026-11-12
 
@@ -108,6 +119,7 @@ breaking changes; they are called out under **Changed**.
 - First release: filtering, sorting and pagination as a FastAPI dependency.
 
 [Unreleased]: https://github.com/fromej-dev/fastapi-fsp/commits/master
+[0.7.1]: https://pypi.org/project/fastapi-fsp/0.7.1/
 [0.7.0]: https://pypi.org/project/fastapi-fsp/0.7.0/
 [0.6.0]: https://pypi.org/project/fastapi-fsp/0.6.0/
 [0.5.2]: https://pypi.org/project/fastapi-fsp/0.5.2/

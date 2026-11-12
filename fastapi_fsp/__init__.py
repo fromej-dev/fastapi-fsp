@@ -2,7 +2,7 @@
 
 from . import models as models  # noqa: F401
 from .builder import FieldBuilder, FilterBuilder  # noqa: F401
-from .config import FSPConfig, FSPPresets  # noqa: F401
+from .config import DEFAULT_DENIED_FIELDS, FSPConfig, FSPPresets  # noqa: F401
 from .filters import FILTER_STRATEGIES, FilterEngine  # noqa: F401
 from .fsp import FSPManager  # noqa: F401
 from .models import (  # noqa: F401
@@ -38,6 +38,7 @@ __all__ = [
     # Configuration
     "FSPConfig",
     "FSPPresets",
+    "DEFAULT_DENIED_FIELDS",
     # Presets
     "CommonFilters",
     # Models

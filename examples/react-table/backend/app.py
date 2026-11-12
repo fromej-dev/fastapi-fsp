@@ -85,6 +85,7 @@ app = FastAPI(title="fastapi-fsp React table example")
 
 # Reject unknown filter or sort fields with a 400 instead of ignoring them.
 config = FSPConfig(strict_mode=True, max_per_page=100)
+fsp_dep = FSPManager.depends(config)
 
 
 def get_session():
@@ -95,9 +96,9 @@ def get_session():
 @app.get("/api/employees", response_model=PaginatedResponse[EmployeePublic])
 def list_employees(
     session: Session = Depends(get_session),
-    fsp: FSPManager = Depends(FSPManager),
+    fsp: FSPManager = Depends(fsp_dep),
 ):
-    return fsp.apply_config(config).generate_response(select(Employee), session)
+    return fsp.generate_response(select(Employee), session)
 
 
 @app.get("/api/departments", response_model=list[str])

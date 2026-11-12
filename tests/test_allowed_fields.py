@@ -11,6 +11,10 @@ from pydantic import computed_field
 from sqlalchemy import StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
+# These tests cover the deprecated apply_config() path; FSPManager.depends() is
+# covered in test_config_dependency.py.
+pytestmark = pytest.mark.filterwarnings("ignore:FSPManager.apply_config:DeprecationWarning")
+
 
 class Account(SQLModel, table=True):
     """Model with a column the API must never expose."""

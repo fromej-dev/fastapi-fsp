@@ -415,15 +415,17 @@ filters = CommonFilters.active() + CommonFilters.recent(days=30)
 ## Configuration
 <!-- --8<-- [start:configuration] -->
 
-Customize FSPManager behavior with `FSPConfig`:
+Customize FSPManager behavior with `FSPConfig`, and build the endpoint dependency
+from it with `FSPManager.depends()`:
 
 ```python
-from fastapi_fsp import FSPConfig, FSPPresets
+from typing import Annotated
 
-# Custom configuration
+from fastapi_fsp import FSPConfig, FSPManager, FSPPresets
+
 config = FSPConfig(
-    max_per_page=50,
-    default_per_page=20,
+    max_per_page=500,
+    default_per_page=25,
     strict_mode=True,  # Raise errors for unknown fields
     max_page=100,
     allow_deep_pagination=False,
@@ -434,12 +436,23 @@ config = FSPPresets.strict()  # strict_mode=True
 config = FSPPresets.limited_pagination(max_page=50)  # Limit deep pagination
 config = FSPPresets.high_volume(max_per_page=500)  # High-volume APIs
 
-# Apply configuration
+fsp_dep = FSPManager.depends(config)
+
 @app.get("/heroes/")
-def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
-    fsp.apply_config(config)
+def read_heroes(
+    session: Annotated[Session, Depends(get_session)],
+    fsp: Annotated[FSPManager, Depends(fsp_dep)],
+):
     return fsp.generate_response(select(Hero), session)
 ```
+
+The page and `per_page` limits and defaults are checked while the request is parsed:
+a `per_page` above `max_per_page` (or a `page` above `max_page` when
+`allow_deep_pagination=False`) returns HTTP 422, and the OpenAPI schema shows the
+configured values. Plain `Depends(FSPManager)` keeps the defaults (`per_page` 10, at most 100).
+
+> `fsp.apply_config(config)` is deprecated. It runs after parsing, so it can only clamp
+> values and the OpenAPI schema keeps showing the defaults. Use `FSPManager.depends(config)`.
 
 ### Search Backend Optimization
 
@@ -471,9 +484,8 @@ config = FSPConfig(
 @app.get("/heroes/")
 def read_heroes(
     session: Session = Depends(get_session),
-    fsp: FSPManager = Depends(FSPManager),
+    fsp: FSPManager = Depends(FSPManager.depends(config)),
 ):
-    fsp.apply_config(config)
     return fsp.generate_response(select(Hero), session)
 ```
 
@@ -500,15 +512,25 @@ config = FSPConfig(
 )
 
 @app.get("/users/", response_model=PaginatedResponse[UserPublic])
-def read_users(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
-    fsp.apply_config(config)
+def read_users(
+    session: Session = Depends(get_session),
+    fsp: FSPManager = Depends(FSPManager.depends(config)),
+):
     return fsp.generate_response(select(User), session)
 
 # GET /users/?sort_by=hashed_password -> HTTP 400
 # "Sorting by 'hashed_password' is not allowed. Allowed fields: created_at, email, id"
 ```
 
-`apply_config()` checks the filter, search and sort keys from the request before any query is built. Filters you add in code with `with_filters()`, `with_or_filters()` or `with_sorting()` are not checked. The default (`None`) allows every column, as before. The built-in blocklist (`password`, `password_hash`, `secret`) still applies either way, but it only matches those exact names, so set an allowlist on any route whose model has columns that must stay private.
+The filter, search and sort keys from the request are checked while the request is parsed, before any query is built. Filters you add in code with `with_filters()`, `with_or_filters()` or `with_sorting()` are not checked. An empty list refuses that operation entirely.
+
+When an operation has no allowlist, the names in `denied_fields` are refused instead (default `DEFAULT_DENIED_FIELDS`: `password`, `password_hash`, `secret`). That list only matches exact names, so prefer an allowlist on any route whose model has columns that must stay private. You can also extend or replace it:
+
+```python
+from fastapi_fsp import DEFAULT_DENIED_FIELDS
+
+config = FSPConfig(denied_fields=DEFAULT_DENIED_FIELDS | {"api_key", "token", "ssn"})
+```
 
 ### Strict Mode
 
@@ -550,11 +572,13 @@ Chain configuration methods:
 
 ```python
 @app.get("/heroes/")
-def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+def read_heroes(
+    session: Session = Depends(get_session),
+    fsp: FSPManager = Depends(FSPManager.depends(FSPPresets.strict())),
+):
     return (
         fsp
         .with_filters(CommonFilters.active())
-        .apply_config(FSPPresets.strict())
         .generate_response(select(Hero), session)
     )
 ```

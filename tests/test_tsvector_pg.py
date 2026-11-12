@@ -115,10 +115,10 @@ def pg_client(pg_engine, pg_seed):
     def read_addresses(
         *,
         session: Session = Depends(get_session),
-        fsp: FSPManager = Depends(FSPManager),
+        fsp: FSPManager = Depends(
+            FSPManager.depends(FSPConfig(search_backend=SearchBackend.TSVECTOR))
+        ),
     ):
-        config = FSPConfig(search_backend=SearchBackend.TSVECTOR)
-        fsp.apply_config(config)
         return fsp.generate_response(select(PgAddress), session)
 
     client = TestClient(app)

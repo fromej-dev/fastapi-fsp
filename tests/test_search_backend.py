@@ -246,7 +246,7 @@ class TestConfigIntegration:
         )
 
         config = FSPConfig(search_backend=SearchBackend.TSVECTOR)
-        fsp.apply_config(config)
+        fsp._configure(config)
 
         assert fsp._filter_engine.search_backend == "tsvector"
 
@@ -266,7 +266,7 @@ class TestConfigIntegration:
         )
 
         config = FSPConfig(search_backend=SearchBackend.TRIGRAM)
-        fsp.apply_config(config)
+        fsp._configure(config)
 
         assert fsp._filter_engine.search_backend == "trigram"
 
@@ -287,7 +287,7 @@ class TestConfigIntegration:
         )
 
         config = FSPConfig(max_search_tokens=10)
-        fsp.apply_config(config)
+        fsp._configure(config)
 
         assert len(fsp.or_filters) == 10
 
@@ -312,7 +312,7 @@ class TestConfigIntegration:
         )
 
         config = FSPConfig(max_search_tokens=10)
-        fsp.apply_config(config)
+        fsp._configure(config)
 
         assert len(fsp.or_filters) == 3
 
