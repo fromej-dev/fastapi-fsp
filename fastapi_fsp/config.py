@@ -1,9 +1,13 @@
 """Configuration classes for fastapi-fsp."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Collection, FrozenSet, Optional
 
 from fastapi_fsp.models import SearchBackend
+
+#: Field names that cannot be filtered, sorted or searched on unless an
+#: allowlist for that operation explicitly includes them.
+DEFAULT_DENIED_FIELDS: FrozenSet[str] = frozenset({"password", "password_hash", "secret"})
 
 
 @dataclass
@@ -22,25 +26,30 @@ class FSPConfig:
         allow_deep_pagination: If True, allow pagination to any page (default: True)
         max_page: Maximum allowed page number, None for unlimited (default: None)
         min_per_page: Minimum allowed items per page (default: 1)
+        search_backend: Backend used for ``search`` queries (default: ILIKE)
+        max_search_tokens: Maximum number of search tokens; extra tokens are dropped
+        filterable_fields: Fields clients may filter on. ``None`` allows any field
+            that is not in ``denied_fields``.
+        sortable_fields: Fields clients may sort on. ``None`` allows any field
+            that is not in ``denied_fields``.
+        searchable_fields: Fields clients may list in ``search_fields``. ``None``
+            allows any field that is not in ``denied_fields``.
+        denied_fields: Fields that are rejected for an operation that has no
+            allowlist (default: ``password``, ``password_hash``, ``secret``)
+        use_window_function: Force the PostgreSQL window-function count on or off.
+            ``None`` auto-detects (default: None)
 
     Example:
-        # Create a strict configuration
         config = FSPConfig(
-            strict_mode=True,
-            max_per_page=50,
-            default_per_page=20
+            max_per_page=500,
+            default_per_page=25,
+            filterable_fields={"name", "age"},
+            sortable_fields={"name", "age", "created_at"},
         )
-
-        # Use with FSPManager
-        def get_fsp_config():
-            return FSPConfig(strict_mode=True)
+        fsp_dep = FSPManager.depends(config)
 
         @app.get("/items/")
-        def read_items(
-            fsp: FSPManager = Depends(FSPManager),
-            config: FSPConfig = Depends(get_fsp_config)
-        ):
-            fsp.apply_config(config)
+        def read_items(fsp: Annotated[FSPManager, Depends(fsp_dep)]):
             ...
     """
 
@@ -60,6 +69,15 @@ class FSPConfig:
     # Search backend settings
     search_backend: SearchBackend = SearchBackend.ILIKE
     max_search_tokens: int = 10
+
+    # Field access settings
+    filterable_fields: Optional[Collection[str]] = None
+    sortable_fields: Optional[Collection[str]] = None
+    searchable_fields: Optional[Collection[str]] = None
+    denied_fields: Collection[str] = DEFAULT_DENIED_FIELDS
+
+    # Query execution settings
+    use_window_function: Optional[bool] = None
 
     # Reserved for future features
     _extra: dict = field(default_factory=dict)
@@ -82,6 +100,28 @@ class FSPConfig:
             raise ValueError("max_page must be >= 1 or None")
         if self.max_search_tokens < 1:
             raise ValueError("max_search_tokens must be >= 1")
+        for name in ("filterable_fields", "sortable_fields", "searchable_fields"):
+            value = getattr(self, name)
+            if value is not None:
+                setattr(self, name, _to_field_set(name, value))
+        self.denied_fields = _to_field_set("denied_fields", self.denied_fields)
+
+    def allows_filter(self, field_name: str) -> bool:
+        """Return True if clients may filter on ``field_name``."""
+        return self._allows(field_name, self.filterable_fields)
+
+    def allows_sort(self, field_name: str) -> bool:
+        """Return True if clients may sort on ``field_name``."""
+        return self._allows(field_name, self.sortable_fields)
+
+    def allows_search(self, field_name: str) -> bool:
+        """Return True if clients may search on ``field_name``."""
+        return self._allows(field_name, self.searchable_fields)
+
+    def _allows(self, field_name: str, allowlist: Optional[Collection[str]]) -> bool:
+        if allowlist is not None:
+            return field_name in allowlist
+        return field_name not in self.denied_fields
 
     def validate_page(self, page: int) -> int:
         """
@@ -120,6 +160,13 @@ class FSPConfig:
         if per_page > self.max_per_page:
             return self.max_per_page
         return per_page
+
+
+def _to_field_set(name: str, value: Collection[str]) -> FrozenSet[str]:
+    """Normalize a collection of field names, rejecting a bare string."""
+    if isinstance(value, str):
+        raise ValueError(f"{name} must be a collection of field names, not a string")
+    return frozenset(value)
 
 
 # Pre-defined configurations for common use cases

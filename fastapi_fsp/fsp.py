@@ -1,6 +1,7 @@
 """FastAPI-SQLModel-Pagination module"""
 
-from typing import Annotated, Any, List, Optional, Type
+import warnings
+from typing import Annotated, Any, Callable, List, NamedTuple, Optional, Type
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
@@ -84,7 +85,7 @@ def _parse_array_of_filters(
     ]
 
 
-def _parse_filters(
+def _read_filters(
     request: Request,
 ) -> Optional[List[Filter]]:
     """
@@ -146,7 +147,7 @@ def _parse_filters(
     return None
 
 
-def _parse_search(
+def _read_search(
     request: Request,
 ) -> Optional[List[OrFilterGroup]]:
     """
@@ -229,46 +230,92 @@ def _parse_search(
         ) from e
 
 
-def _parse_sort(
-    sort_by: Optional[str] = Query(None, alias="sort_by"),
-    order: Optional[SortingOrder] = Query(SortingOrder.ASC, alias="order"),
-) -> Optional[SortingQuery]:
+def _reject(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+
+def _check_filter_fields(config: FSPConfig, filters: Optional[List[Filter]]) -> None:
+    """Raise HTTP 400 if a client filter targets a field the config does not allow."""
+    for i, f in enumerate(filters or []):
+        if not config.allows_filter(f.field):
+            raise _reject(f"Invalid filter at index {i}: filtering by '{f.field}' is not allowed.")
+
+
+def _check_search_fields(config: FSPConfig, or_filters: Optional[List[OrFilterGroup]]) -> None:
+    """Raise HTTP 400 if a client search targets a field the config does not allow."""
+    for group in or_filters or []:
+        for f in group.filters:
+            if not config.allows_search(f.field):
+                raise _reject(f"Invalid search_fields: searching by '{f.field}' is not allowed.")
+
+
+def _check_sort_field(config: FSPConfig, sorting: Optional[SortingQuery]) -> None:
+    """Raise HTTP 400 if the client sort field is not allowed by the config."""
+    if sorting is not None and not config.allows_sort(sorting.sort_by):
+        raise _reject(f"Invalid sort_by: sorting by '{sorting.sort_by}' is not allowed.")
+
+
+class _Parsers(NamedTuple):
+    """Request-parsing dependencies bound to one FSPConfig."""
+
+    filters: Callable[..., Optional[List[Filter]]]
+    sort: Callable[..., Optional[SortingQuery]]
+    pagination: Callable[..., PaginationQuery]
+    search: Callable[..., Optional[List[OrFilterGroup]]]
+
+
+def _build_parsers(config: FSPConfig) -> _Parsers:
     """
-    Parse sorting parameters from query parameters.
+    Build the query-parameter dependencies for a configuration.
 
-    Args:
-        sort_by: Field to sort by
-        order: Sorting order (ASC or DESC)
-
-    Returns:
-        Optional[SortingQuery]: Parsed sorting query or None if no sorting
+    Pagination limits and defaults are part of the ``Query`` declarations, so
+    they are validated by FastAPI and shown in the OpenAPI schema. Field
+    allowlists and the denylist are enforced while parsing.
     """
-    if not sort_by:
-        return None
-    try:
-        return SortingQuery(sort_by=sort_by, order=order)
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid sort_by: {str(e)}",
-        ) from e
+    max_page = config.max_page if not config.allow_deep_pagination else None
+
+    def parse_filters(request: Request) -> Optional[List[Filter]]:
+        filters = _read_filters(request)
+        _check_filter_fields(config, filters)
+        return filters
+
+    def parse_search(request: Request) -> Optional[List[OrFilterGroup]]:
+        or_filters = _read_search(request)
+        _check_search_fields(config, or_filters)
+        return or_filters
+
+    def parse_sort(
+        sort_by: Optional[str] = Query(None, alias="sort_by"),
+        order: Optional[SortingOrder] = Query(SortingOrder.ASC, alias="order"),
+    ) -> Optional[SortingQuery]:
+        if not sort_by:
+            return None
+        sorting = SortingQuery(sort_by=sort_by, order=order or SortingOrder.ASC)
+        _check_sort_field(config, sorting)
+        return sorting
+
+    def parse_pagination(
+        page: int = Query(config.default_page, ge=1, le=max_page, description="Page number"),
+        per_page: int = Query(
+            config.default_per_page,
+            ge=config.min_per_page,
+            le=config.max_per_page,
+            description=f"Items per page ({config.min_per_page}-{config.max_per_page})",
+        ),
+    ) -> PaginationQuery:
+        return PaginationQuery(page=page, per_page=per_page)
+
+    return _Parsers(parse_filters, parse_sort, parse_pagination, parse_search)
 
 
-def _parse_pagination(
-    page: Optional[int] = Query(1, ge=1, description="Page number"),
-    per_page: Optional[int] = Query(10, ge=1, le=100, description="Items per page"),
-) -> PaginationQuery:
-    """
-    Parse pagination parameters from query parameters.
+_DEFAULT_CONFIG = FSPConfig()
+_DEFAULT_PARSERS = _build_parsers(_DEFAULT_CONFIG)
 
-    Args:
-        page: Page number (>= 1)
-        per_page: Number of items per page (1-100)
-
-    Returns:
-        PaginationQuery: Parsed pagination query
-    """
-    return PaginationQuery(page=page, per_page=per_page)
+# Dependencies used by ``Depends(FSPManager)`` (default configuration).
+_parse_filters = _DEFAULT_PARSERS.filters
+_parse_sort = _DEFAULT_PARSERS.sort
+_parse_pagination = _DEFAULT_PARSERS.pagination
+_parse_search = _DEFAULT_PARSERS.search
 
 
 class FSPManager:
@@ -283,7 +330,56 @@ class FSPManager:
     - SortEngine: Column resolution and sort direction
     - PaginationEngine: Pagination, counting, and response building
       (with optional PostgreSQL window function optimization)
+
+    Use ``Depends(FSPManager)`` for the default configuration, or
+    ``Depends(FSPManager.depends(config))`` to apply an ``FSPConfig``.
     """
+
+    @classmethod
+    def depends(cls, config: Optional[FSPConfig] = None) -> Callable[..., "FSPManager"]:
+        """
+        Build a FastAPI dependency that creates an FSPManager from a configuration.
+
+        Pagination limits and defaults are validated during request parsing and
+        appear in the OpenAPI schema. Strict mode, the search backend, search
+        token limits and the field allowlists come from the same config.
+
+        Args:
+            config: Configuration to apply. Defaults to ``FSPConfig()``.
+
+        Returns:
+            A dependency callable for use with ``Depends``.
+
+        Example:
+            fsp_dep = FSPManager.depends(FSPConfig(max_per_page=500, default_per_page=25))
+
+            @app.get("/items")
+            def items(fsp: Annotated[FSPManager, Depends(fsp_dep)]):
+                ...
+        """
+        config = config if config is not None else FSPConfig()
+        parsers = _build_parsers(config)
+
+        def fsp_dependency(
+            request: Request,
+            filters: Annotated[Optional[List[Filter]], Depends(parsers.filters)],
+            sorting: Annotated[Optional[SortingQuery], Depends(parsers.sort)],
+            pagination: Annotated[PaginationQuery, Depends(parsers.pagination)],
+            or_filters: Annotated[Optional[List[OrFilterGroup]], Depends(parsers.search)],
+        ) -> "FSPManager":
+            manager = cls(
+                request=request,
+                filters=filters,
+                sorting=sorting,
+                pagination=pagination,
+                or_filters=or_filters,
+                strict_mode=config.strict_mode,
+                use_window_function=config.use_window_function,
+            )
+            manager._configure(config)
+            return manager
+
+        return fsp_dependency
 
     def __init__(
         self,
@@ -630,21 +726,40 @@ class FSPManager:
         """
         Apply a configuration to this FSPManager instance.
 
+        .. deprecated:: 0.8.0
+            Use ``Depends(FSPManager.depends(config))`` instead. ``apply_config``
+            runs after the request is parsed, so pagination limits are clamped
+            rather than validated and the OpenAPI schema shows the defaults.
+
         Args:
             config: FSPConfig instance with settings
 
         Returns:
             FSPManager: Self for chaining
+
+        Raises:
+            HTTPException: If a filter, search or sort field is not allowed by the config
         """
-        self.strict_mode = config.strict_mode
-        # Validate and constrain pagination values
+        warnings.warn(
+            "FSPManager.apply_config() is deprecated and will be removed in a future "
+            "release; use Depends(FSPManager.depends(config)) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _check_filter_fields(config, self.filters)
+        _check_search_fields(config, self.or_filters)
+        _check_sort_field(config, self.sorting)
+        self._configure(config)
         self.pagination.page = config.validate_page(self.pagination.page)
         self.pagination.per_page = config.validate_per_page(self.pagination.per_page)
-        # Search backend settings
+        return self
+
+    def _configure(self, config: FSPConfig) -> None:
+        """Apply engine settings from a configuration."""
+        self.strict_mode = config.strict_mode
         self._filter_engine.search_backend = config.search_backend.value
         if self.or_filters and len(self.or_filters) > config.max_search_tokens:
             self.or_filters = self.or_filters[: config.max_search_tokens]
-        return self
 
     def from_model(
         self,

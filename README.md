@@ -415,15 +415,17 @@ filters = CommonFilters.active() + CommonFilters.recent(days=30)
 ## Configuration
 <!-- --8<-- [start:configuration] -->
 
-Customize FSPManager behavior with `FSPConfig`:
+Customize FSPManager behavior with `FSPConfig`, and build the endpoint dependency
+from it with `FSPManager.depends()`:
 
 ```python
-from fastapi_fsp import FSPConfig, FSPPresets
+from typing import Annotated
 
-# Custom configuration
+from fastapi_fsp import FSPConfig, FSPManager, FSPPresets
+
 config = FSPConfig(
-    max_per_page=50,
-    default_per_page=20,
+    max_per_page=500,
+    default_per_page=25,
     strict_mode=True,  # Raise errors for unknown fields
     max_page=100,
     allow_deep_pagination=False,
@@ -434,12 +436,55 @@ config = FSPPresets.strict()  # strict_mode=True
 config = FSPPresets.limited_pagination(max_page=50)  # Limit deep pagination
 config = FSPPresets.high_volume(max_per_page=500)  # High-volume APIs
 
-# Apply configuration
+fsp_dep = FSPManager.depends(config)
+
 @app.get("/heroes/")
-def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
-    fsp.apply_config(config)
+def read_heroes(
+    session: Annotated[Session, Depends(get_session)],
+    fsp: Annotated[FSPManager, Depends(fsp_dep)],
+):
     return fsp.generate_response(select(Hero), session)
 ```
+
+The page and `per_page` limits and defaults are checked while the request is parsed:
+a `per_page` above `max_per_page` (or a `page` above `max_page` when
+`allow_deep_pagination=False`) returns HTTP 422, and the OpenAPI schema shows the
+configured values. Plain `Depends(FSPManager)` keeps the defaults (`per_page` 10, at most 100).
+
+> `fsp.apply_config(config)` is deprecated. It runs after parsing, so it can only clamp
+> values and the OpenAPI schema keeps showing the defaults. Use `FSPManager.depends(config)`.
+
+### Restricting fields
+
+By default a client can filter, sort and search on any column of the selected model,
+except `password`, `password_hash` and `secret`. Filtering on a column leaks its value
+even if the response never includes it (for example by probing with `starts_with`),
+so list the fields each endpoint exposes:
+
+```python
+config = FSPConfig(
+    filterable_fields={"name", "age", "created_at"},
+    sortable_fields={"name", "age", "created_at"},
+    searchable_fields={"name"},
+)
+```
+
+A request that uses a field outside the list gets HTTP 400, for example
+`Invalid sort_by: sorting by 'secret_name' is not allowed.` Each list covers one
+operation: `filterable_fields` covers filters, `sortable_fields` covers `sort_by`, and
+`searchable_fields` covers `search_fields`. An empty list blocks that operation entirely.
+
+When an operation has no allowlist, the names in `denied_fields` are rejected instead.
+You can extend or replace that list:
+
+```python
+from fastapi_fsp import DEFAULT_DENIED_FIELDS
+
+config = FSPConfig(denied_fields=DEFAULT_DENIED_FIELDS | {"api_key", "token", "ssn"})
+```
+
+The lists only apply to the request's query parameters. Filters you add in code with
+`with_filters()` or `with_or_filters()` are not checked.
 
 ### Search Backend Optimization
 
@@ -471,9 +516,8 @@ config = FSPConfig(
 @app.get("/heroes/")
 def read_heroes(
     session: Session = Depends(get_session),
-    fsp: FSPManager = Depends(FSPManager),
+    fsp: FSPManager = Depends(FSPManager.depends(config)),
 ):
-    fsp.apply_config(config)
     return fsp.generate_response(select(Hero), session)
 ```
 
@@ -519,11 +563,13 @@ Chain configuration methods:
 
 ```python
 @app.get("/heroes/")
-def read_heroes(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+def read_heroes(
+    session: Session = Depends(get_session),
+    fsp: FSPManager = Depends(FSPManager.depends(FSPPresets.strict())),
+):
     return (
         fsp
         .with_filters(CommonFilters.active())
-        .apply_config(FSPPresets.strict())
         .generate_response(select(Hero), session)
     )
 ```

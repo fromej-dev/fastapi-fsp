@@ -7,6 +7,18 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+- `FSPManager.depends(config)` builds the endpoint dependency from an `FSPConfig`. `max_per_page`, `min_per_page`, `default_per_page`, `default_page` and `max_page` are now validated during parsing (HTTP 422) and appear in the OpenAPI schema, so `max_per_page` above 100 works ([#21](https://github.com/fromej-dev/fastapi-fsp/issues/21)).
+- `filterable_fields`, `sortable_fields` and `searchable_fields` on `FSPConfig`. A request that uses a field outside the list gets HTTP 400 ([#20](https://github.com/fromej-dev/fastapi-fsp/issues/20)).
+- `denied_fields` on `FSPConfig` (default `DEFAULT_DENIED_FIELDS`: `password`, `password_hash`, `secret`), applied to operations that have no allowlist ([#20](https://github.com/fromej-dev/fastapi-fsp/issues/20)).
+- `use_window_function` on `FSPConfig`.
+
+### Changed
+- `Filter` and `SortingQuery` no longer reject `password`, `password_hash` and `secret` themselves. The check now runs while parsing the request, so filters built in code are not affected. Error messages for blocked fields changed, e.g. `Invalid sort_by: sorting by 'password' is not allowed.`
+
+### Deprecated
+- `FSPManager.apply_config()`. Use `Depends(FSPManager.depends(config))` instead. It still works, now emits a `DeprecationWarning`, and also enforces the field allowlists.
+
 ## [0.7.0] - 2026-11-12
 
 ### Added
