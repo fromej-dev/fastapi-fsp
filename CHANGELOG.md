@@ -7,6 +7,8 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-12
+
 ### Added
 - `FSPManager.depends(config)` builds the endpoint dependency from an `FSPConfig`. `max_per_page`, `min_per_page`, `default_per_page`, `default_page` and `max_page` are now validated during parsing (HTTP 422) and appear in the OpenAPI schema, so `max_per_page` above 100 works. Strict mode, search settings and field allowlists come from the same config ([#21](https://github.com/fromej-dev/fastapi-fsp/issues/21)).
 - `denied_fields` on `FSPConfig` (default `DEFAULT_DENIED_FIELDS`: `password`, `password_hash`, `secret`). It replaces the hardcoded blocklist and applies only to operations that have no allowlist ([#20](https://github.com/fromej-dev/fastapi-fsp/issues/20)).
@@ -117,6 +119,7 @@ breaking changes; they are called out under **Changed**.
 - First release: filtering, sorting and pagination as a FastAPI dependency.
 
 [Unreleased]: https://github.com/fromej-dev/fastapi-fsp/commits/master
+[0.7.1]: https://pypi.org/project/fastapi-fsp/0.7.1/
 [0.7.0]: https://pypi.org/project/fastapi-fsp/0.7.0/
 [0.6.0]: https://pypi.org/project/fastapi-fsp/0.6.0/
 [0.5.2]: https://pypi.org/project/fastapi-fsp/0.5.2/

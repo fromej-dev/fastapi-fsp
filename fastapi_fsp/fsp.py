@@ -759,7 +759,7 @@ class FSPManager:
         """
         Apply a configuration to this FSPManager instance.
 
-        .. deprecated:: 0.8.0
+        .. deprecated:: 0.7.1
             Use ``Depends(FSPManager.depends(config))`` instead. ``apply_config``
             runs after the request is parsed, so pagination limits are clamped
             rather than validated and the OpenAPI schema shows the defaults.
