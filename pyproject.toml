@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fastapi-fsp"
-version = "0.6.0"
+version = "0.6.1"
 description = "Filter, sort, paginate and search FastAPI list endpoints with one dependency (SQLModel / SQLAlchemy)"
 readme = "README.md"
 requires-python = ">=3.12"
