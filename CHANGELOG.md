@@ -7,6 +7,8 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-12
+
 ### Added
 - Date and time filters accept ISO 8601 strings, so `?field=created_at&operator=gte&value=2026-01-01T00:00:00` works directly ([#18](https://github.com/fromej-dev/fastapi-fsp/pull/18), thanks @Harold2017).
 - Filtering and sorting on sensitive column names (`password`, `password_hash`, `secret`) is rejected with HTTP 400 ([#18](https://github.com/fromej-dev/fastapi-fsp/pull/18), thanks @Harold2017).
@@ -103,6 +105,7 @@ breaking changes; they are called out under **Changed**.
 - First release: filtering, sorting and pagination as a FastAPI dependency.
 
 [Unreleased]: https://github.com/fromej-dev/fastapi-fsp/commits/master
+[0.7.0]: https://pypi.org/project/fastapi-fsp/0.7.0/
 [0.6.0]: https://pypi.org/project/fastapi-fsp/0.6.0/
 [0.5.2]: https://pypi.org/project/fastapi-fsp/0.5.2/
 [0.5.1]: https://pypi.org/project/fastapi-fsp/0.5.1/
