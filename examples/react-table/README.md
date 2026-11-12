@@ -8,7 +8,8 @@ through a single fastapi-fsp endpoint.
 - **Backend** ([`backend/app.py`](https://github.com/fromej-dev/fastapi-fsp/blob/master/examples/react-table/backend/app.py)):
   FastAPI + SQLModel with 500 generated employees in an in-memory SQLite database.
   The whole list endpoint is one line:
-  `fsp.apply_config(config).generate_response(select(Employee), session)`.
+  `fsp.generate_response(select(Employee), session)`, with the config applied through
+  `Depends(FSPManager.depends(config))`.
 - **Frontend** ([`frontend/src`](https://github.com/fromej-dev/fastapi-fsp/tree/master/examples/react-table/frontend/src)):
   React and [TanStack Table](https://tanstack.com/table) in manual (server-side) mode.
   [`api.js`](https://github.com/fromej-dev/fastapi-fsp/blob/master/examples/react-table/frontend/src/api.js)

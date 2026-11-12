@@ -8,6 +8,10 @@ from pydantic import BaseModel
 
 from fastapi_fsp.models import SearchBackend
 
+#: Field names that clients cannot filter, sort or search on when that
+#: operation has no allowlist.
+DEFAULT_DENIED_FIELDS: FrozenSet[str] = frozenset({"password", "password_hash", "secret"})
+
 FieldAllowlist = Union[Iterable[str], type[BaseModel]]
 """Field names, or a pydantic/SQLModel class whose fields and computed fields are allowed."""
 
@@ -48,25 +52,21 @@ class FSPConfig:
         filterable_fields: Overrides allowed_fields for filters
         sortable_fields: Overrides allowed_fields for sort_by
         searchable_fields: Overrides allowed_fields for search_fields
+        denied_fields: Field names refused for an operation that has no allowlist
+            (default: ``DEFAULT_DENIED_FIELDS``: password, password_hash, secret)
+        use_window_function: Force the PostgreSQL window-function count on or off.
+            None (default) auto-detects.
 
     Example:
-        # Create a strict configuration
         config = FSPConfig(
-            strict_mode=True,
-            max_per_page=50,
-            default_per_page=20
+            max_per_page=500,
+            default_per_page=25,
+            allowed_fields=ItemPublic,
         )
-
-        # Use with FSPManager
-        def get_fsp_config():
-            return FSPConfig(strict_mode=True)
+        fsp_dep = FSPManager.depends(config)
 
         @app.get("/items/")
-        def read_items(
-            fsp: FSPManager = Depends(FSPManager),
-            config: FSPConfig = Depends(get_fsp_config)
-        ):
-            fsp.apply_config(config)
+        def read_items(fsp: Annotated[FSPManager, Depends(fsp_dep)]):
             ...
     """
 
@@ -92,6 +92,10 @@ class FSPConfig:
     filterable_fields: Optional[FieldAllowlist] = None
     sortable_fields: Optional[FieldAllowlist] = None
     searchable_fields: Optional[FieldAllowlist] = None
+    denied_fields: Iterable[str] = DEFAULT_DENIED_FIELDS
+
+    # Query execution settings
+    use_window_function: Optional[bool] = None
 
     # Reserved for future features
     _extra: dict = field(default_factory=dict)
@@ -116,6 +120,9 @@ class FSPConfig:
             raise ValueError("max_search_tokens must be >= 1")
         for name in ("allowed_fields", "filterable_fields", "sortable_fields", "searchable_fields"):
             setattr(self, name, _to_field_set(name, getattr(self, name)))
+        if isinstance(self.denied_fields, type):
+            raise ValueError("denied_fields must be a collection of field names")
+        self.denied_fields = _to_field_set("denied_fields", self.denied_fields)
 
     @property
     def effective_filterable_fields(self) -> Optional[FrozenSet[str]]:
@@ -131,6 +138,23 @@ class FSPConfig:
     def effective_searchable_fields(self) -> Optional[FrozenSet[str]]:
         """Fields allowed in search_fields, or None for no restriction."""
         return self.searchable_fields if self.searchable_fields is not None else self.allowed_fields
+
+    def allows_filter(self, field_name: str) -> bool:
+        """Return True if clients may filter on ``field_name``."""
+        return self._allows(field_name, self.effective_filterable_fields)
+
+    def allows_sort(self, field_name: str) -> bool:
+        """Return True if clients may sort on ``field_name``."""
+        return self._allows(field_name, self.effective_sortable_fields)
+
+    def allows_search(self, field_name: str) -> bool:
+        """Return True if clients may search on ``field_name``."""
+        return self._allows(field_name, self.effective_searchable_fields)
+
+    def _allows(self, field_name: str, allowlist: Optional[FrozenSet[str]]) -> bool:
+        if allowlist is not None:
+            return field_name in allowlist
+        return field_name not in self.denied_fields
 
     def validate_page(self, page: int) -> int:
         """
