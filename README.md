@@ -479,6 +479,37 @@ def read_heroes(
 
 Non-search OR groups (mixed operators, phrase mode, custom `with_or_filters()`) automatically fall back to the standard ILIKE path regardless of the configured backend.
 
+### Field Allowlists
+
+By default, clients can filter, search and sort on every column of the queried model, including columns your response model leaves out. A filter such as `?field=hashed_password&operator=starts_with&value=$2b` together with `total_items` is enough to read such a column one character at a time. Restrict each route to the fields it actually exposes:
+
+```python
+from fastapi_fsp import FSPConfig
+
+# Allow the fields (and computed fields) of the response model...
+config = FSPConfig(allowed_fields=UserPublic)
+
+# ...or list them explicitly
+config = FSPConfig(allowed_fields={"id", "email", "created_at"})
+
+# Per-kind lists override allowed_fields for filters, sort_by or search_fields
+config = FSPConfig(
+    allowed_fields=UserPublic,
+    sortable_fields={"id", "created_at"},
+    searchable_fields={"email"},
+)
+
+@app.get("/users/", response_model=PaginatedResponse[UserPublic])
+def read_users(session: Session = Depends(get_session), fsp: FSPManager = Depends(FSPManager)):
+    fsp.apply_config(config)
+    return fsp.generate_response(select(User), session)
+
+# GET /users/?sort_by=hashed_password -> HTTP 400
+# "Sorting by 'hashed_password' is not allowed. Allowed fields: created_at, email, id"
+```
+
+`apply_config()` checks the filter, search and sort keys from the request before any query is built. Filters you add in code with `with_filters()`, `with_or_filters()` or `with_sorting()` are not checked. The default (`None`) allows every column, as before. The built-in blocklist (`password`, `password_hash`, `secret`) still applies either way, but it only matches those exact names, so set an allowlist on any route whose model has columns that must stay private.
+
 ### Strict Mode
 
 When `strict_mode=True`, FSPManager raises HTTP 400 errors for unknown filter/sort fields:

@@ -1,9 +1,29 @@
 """Configuration classes for fastapi-fsp."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import FrozenSet, Optional, Union
+
+from pydantic import BaseModel
 
 from fastapi_fsp.models import SearchBackend
+
+FieldAllowlist = Union[Iterable[str], type[BaseModel]]
+"""Field names, or a pydantic/SQLModel class whose fields and computed fields are allowed."""
+
+
+def _to_field_set(name: str, value: Optional[FieldAllowlist]) -> Optional[FrozenSet[str]]:
+    """Normalize an allowlist option to a frozenset of field names."""
+    if value is None:
+        return None
+    if isinstance(value, type) and issubclass(value, BaseModel):
+        return frozenset(value.model_fields) | frozenset(value.model_computed_fields)
+    if isinstance(value, str):
+        raise ValueError(f"{name} must be a collection of field names, not a single string")
+    fields = frozenset(value)
+    if not all(isinstance(f, str) for f in fields):
+        raise ValueError(f"{name} must contain only field names (str)")
+    return fields
 
 
 @dataclass
@@ -22,6 +42,12 @@ class FSPConfig:
         allow_deep_pagination: If True, allow pagination to any page (default: True)
         max_page: Maximum allowed page number, None for unlimited (default: None)
         min_per_page: Minimum allowed items per page (default: 1)
+        allowed_fields: Field names clients may filter, search and sort on, or a
+            pydantic/SQLModel class whose fields and computed fields are allowed.
+            None (default) allows every column of the queried model.
+        filterable_fields: Overrides allowed_fields for filters
+        sortable_fields: Overrides allowed_fields for sort_by
+        searchable_fields: Overrides allowed_fields for search_fields
 
     Example:
         # Create a strict configuration
@@ -61,6 +87,12 @@ class FSPConfig:
     search_backend: SearchBackend = SearchBackend.ILIKE
     max_search_tokens: int = 10
 
+    # Field allowlists (None = no restriction)
+    allowed_fields: Optional[FieldAllowlist] = None
+    filterable_fields: Optional[FieldAllowlist] = None
+    sortable_fields: Optional[FieldAllowlist] = None
+    searchable_fields: Optional[FieldAllowlist] = None
+
     # Reserved for future features
     _extra: dict = field(default_factory=dict)
 
@@ -82,6 +114,23 @@ class FSPConfig:
             raise ValueError("max_page must be >= 1 or None")
         if self.max_search_tokens < 1:
             raise ValueError("max_search_tokens must be >= 1")
+        for name in ("allowed_fields", "filterable_fields", "sortable_fields", "searchable_fields"):
+            setattr(self, name, _to_field_set(name, getattr(self, name)))
+
+    @property
+    def effective_filterable_fields(self) -> Optional[FrozenSet[str]]:
+        """Fields allowed in filters, or None for no restriction."""
+        return self.filterable_fields if self.filterable_fields is not None else self.allowed_fields
+
+    @property
+    def effective_sortable_fields(self) -> Optional[FrozenSet[str]]:
+        """Fields allowed in sort_by, or None for no restriction."""
+        return self.sortable_fields if self.sortable_fields is not None else self.allowed_fields
+
+    @property
+    def effective_searchable_fields(self) -> Optional[FrozenSet[str]]:
+        """Fields allowed in search_fields, or None for no restriction."""
+        return self.searchable_fields if self.searchable_fields is not None else self.allowed_fields
 
     def validate_page(self, page: int) -> int:
         """

@@ -7,6 +7,9 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+- `allowed_fields` on `FSPConfig`, with `filterable_fields`, `sortable_fields` and `searchable_fields` overrides. Pass field names or a pydantic/SQLModel class (its fields and computed fields are used). `apply_config()` then rejects filter, search and sort keys from the request that are not in the list with HTTP 400. Off by default; use it to keep columns the response model hides (such as password hashes or tokens) from being filtered or sorted on.
+
 ## [0.7.0] - 2026-11-12
 
 ### Added

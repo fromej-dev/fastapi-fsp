@@ -1,6 +1,6 @@
 """FastAPI-SQLModel-Pagination module"""
 
-from typing import Annotated, Any, List, Optional, Type
+from typing import AbstractSet, Annotated, Any, Iterable, List, Optional, Type
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
@@ -271,6 +271,31 @@ def _parse_pagination(
     return PaginationQuery(page=page, per_page=per_page)
 
 
+def _refuse_unlisted(
+    action: str, fields: Iterable[str], allowed: Optional[AbstractSet[str]]
+) -> None:
+    """
+    Raise HTTP 400 for the first field that is not in the allowlist.
+
+    Args:
+        action: Verb for the error message, e.g. "Filtering"
+        fields: Field names taken from the request
+        allowed: Allowed field names, or None for no restriction
+
+    Raises:
+        HTTPException: If a field is not in the allowlist
+    """
+    if allowed is None:
+        return
+    for name in fields:
+        if name not in allowed:
+            listed = ", ".join(sorted(allowed)) or "(none)"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{action} by '{name}' is not allowed. Allowed fields: {listed}",
+            )
+
+
 class FSPManager:
     """
     FastAPI Filtering, Sorting, and Pagination Manager.
@@ -313,6 +338,12 @@ class FSPManager:
         self.or_filters = or_filters
         self.sorting = sorting
         self.pagination = pagination
+
+        # Keys sent by the client, checked against FSPConfig allowlists in apply_config().
+        # Filters added later in code (with_filters etc.) are trusted and not checked.
+        self._request_filter_fields = [f.field for f in filters or []]
+        self._request_search_fields = [f.field for g in or_filters or [] for f in g.filters]
+        self._request_sort_fields = [sorting.sort_by] if sorting else []
 
         # Initialize engines
         self._filter_engine = FilterEngine(strict_mode=strict_mode)
@@ -635,7 +666,19 @@ class FSPManager:
 
         Returns:
             FSPManager: Self for chaining
+
+        Raises:
+            HTTPException: If the request filters, searches or sorts on a field
+                outside the configured allowlist
         """
+        _refuse_unlisted(
+            "Filtering", self._request_filter_fields, config.effective_filterable_fields
+        )
+        _refuse_unlisted(
+            "Searching", self._request_search_fields, config.effective_searchable_fields
+        )
+        _refuse_unlisted("Sorting", self._request_sort_fields, config.effective_sortable_fields)
+
         self.strict_mode = config.strict_mode
         # Validate and constrain pagination values
         self.pagination.page = config.validate_page(self.pagination.page)
